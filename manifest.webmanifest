@@ -1,7 +1,7 @@
 {
-  "name": "BEACON 병동 행동 관찰코딩",
-  "short_name": "BEACON 관찰",
-  "description": "병동 행동 관찰 단일 연속 코딩 앱 (BEACON 관찰연구) — 무 PII·오프라인·서버시각 동기",
+  "name": "HAIR 병동 행동 관찰코딩",
+  "short_name": "HAIR 관찰",
+  "description": "병동 행동 관찰 단일 연속 코딩 앱 (HAIR 관찰연구) — 무 PII·오프라인·서버시각 동기",
   "lang": "ko",
   "start_url": "./index.html",
   "scope": "./",

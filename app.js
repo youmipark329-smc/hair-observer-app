@@ -1,4 +1,4 @@
-/* BEACON 병동 행동 관찰 코딩 앱 (PWA) · v1.0 · 2026-08-14
+/* HAIR 병동 행동 관찰 코딩 앱 (PWA) · v1.0 · 2026-08-14
    단일 연속 코딩(S2) — 관찰자는 4-상태(LIE/SIT/STD/WLK)만 태핑, 전환·bed-exit 자동 도출.
    시각동기: HTTP /time(옵션) + 단조앵커(performance.now) → t_server/t_device/clock_offset_ms/sync_flag.
    저장: IndexedDB(오프라인·재실행 보존). 결합: 서버 3-way(행동×알람×판정), 무 PII. */
@@ -62,7 +62,7 @@ function paintSync(){
 var DB=null;
 function idbOpen(){
   return new Promise(function(res,rej){
-    var r=indexedDB.open('beacon_observer',1);
+    var r=indexedDB.open('hair_observer',1);
     r.onupgradeneeded=function(e){ var db=e.target.result;
       if(!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions',{keyPath:'id'});
       if(!db.objectStoreNames.contains('meta')) db.createObjectStore('meta',{keyPath:'k'});
@@ -290,7 +290,7 @@ function refreshList(){
       li.innerHTML='<div class="meta"><div class="m1">'+esc(s.pid)+pill+'</div>'+
         '<div class="m2">'+esc(s.obs)+(s.set?(' · '+esc(s.set)):'')+' · '+dateStr(s.createdDevice)+' '+clock(s.createdDevice)+' · '+dur+'</div></div>';
       var open=document.createElement('button'); open.className='sbtn'; open.textContent=s.ended?'CSV':'이어하기';
-      open.addEventListener('click',function(){ if(s.ended){ download('BEACON_'+s.pid+'_'+s.id+'.csv', matrixToCsv(sessRows(s,true,s.endTs))); } else { resumeSession(s); } });
+      open.addEventListener('click',function(){ if(s.ended){ download('HAIR_'+s.pid+'_'+s.id+'.csv', matrixToCsv(sessRows(s,true,s.endTs))); } else { resumeSession(s); } });
       li.appendChild(open); ul.appendChild(li);
     });
   });
@@ -342,7 +342,7 @@ function bind(){
   $('sync').addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){Clock.sync();e.preventDefault();}});
   $('gear').addEventListener('click',openSettings);
   $('resume').addEventListener('click',function(){ if(!S)return; S.ended=false; var ts=Clock.now(); S.boutStart=ts;S.boutStartDev=Clock.deviceNow();S.boutEnter=S.cur;S.boutIsBed=false;S.ctxStart=ts; persist(); show('codeScreen'); render(); });
-  $('saveCsv').addEventListener('click',function(){ if(!S)return; download('BEACON_'+S.pid+'_'+S.id+'.csv', matrixToCsv(sessRows(S,true,S.endTs||Clock.now()))); });
+  $('saveCsv').addEventListener('click',function(){ if(!S)return; download('HAIR_'+S.pid+'_'+S.id+'.csv', matrixToCsv(sessRows(S,true,S.endTs||Clock.now()))); });
   $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_serial').value=''; $('s_obs').value=CFG.obs||''; if($('s_set'))$('s_set').value=CFG.set||''; if($('s_start'))$('s_start').value='LIE'; show('startScreen'); refreshList(); });
   $('exportAll').addEventListener('click',function(){
     idbAll('sessions').then(function(list){
@@ -350,7 +350,7 @@ function bind(){
       list.sort(function(a,b){return a.createdDevice-b.createdDevice;});
       var all=[HEAD.slice()];
       list.forEach(function(s){ sessRows(s,false,s.endTs||Clock.now()).forEach(function(r){ all.push(r); }); });
-      download('BEACON_all_sessions_'+dateStr(Date.now())+'.csv', matrixToCsv(all));
+      download('HAIR_all_sessions_'+dateStr(Date.now())+'.csv', matrixToCsv(all));
     });
   });
   $('saveCfg').addEventListener('click',commitCfg);

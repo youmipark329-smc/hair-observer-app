@@ -1,4 +1,4 @@
-# BEACON 병동 행동 관찰코딩 앱 (PWA) — 설치·호스팅 안내 · v1.1 · 2026-08-14
+# HAIR 병동 행동 관찰코딩 앱 (PWA) — 설치·호스팅 안내 · v1.2 · 2026-08-26
 
 > **정체:** 실제로 갤럭시에서 구동되는 **설치형 웹앱(PWA)**. 관찰자가 4-상태(LIE/SIT/STD/WLK)만
 > 태핑하면 전환·bed-exit·체류시간이 자동 도출되고, 서버시각 동기·오프라인 저장·CSV 내보내기까지
@@ -18,16 +18,20 @@ observer_app_pwa_20260814/
 ├─ manifest.webmanifest     # 설치 메타(이름·아이콘·standalone)
 ├─ sw.js                    # 서비스워커(오프라인 앱셸 캐시)
 ├─ icons/                   # 아이콘 192·512·maskable-512 (PNG)
-└─ README_설치_호스팅_안내_20260814.md
+└─ 20260826_README_설치_호스팅_안내.md
 ```
 
 ## 2. 갤럭시에 올리는 방법 — 3가지 (택1)
 
-> **배포 현황 (2026-08-14):** GitHub Pages 공개 저장소 `youmipark329-smc/beacon-observer-app`
-> (main/root)로 **배포·라이브 검증까지 완료**(주소 `https://youmipark329-smc.github.io/beacon-observer-app/`,
+> **저장소명 변경(2026-08-26):** 연구 애칭 통일에 따라 `beacon-observer-app` → **`hair-observer-app`** 으로 변경.
+> 배포 전·수집 데이터 없음을 확인하고 수행했으며, 앱 내부 식별자도 함께 변경(IndexedDB `hair_observer`, SW 캐시 `hair-observer-v15`).
+> **QR·포스터·퀵가이드는 새 주소로 재생성 완료**(구 QR 파일은 삭제). 구 주소로 만든 인쇄물이 있으면 폐기하세요.
+>
+> **배포 현황 (2026-08-14):** GitHub Pages 공개 저장소 `youmipark329-smc/hair-observer-app`
+> (main/root)로 **배포·라이브 검증까지 완료**(주소 `https://youmipark329-smc.github.io/hair-observer-app/`,
 > service worker 제어·오프라인 설치 확인). 이후 **웹주소는 임시 비활성(Pages 비활성화)** 한 상태 —
 > **저장소·파일·소스는 그대로 보존**. 파일럿 등에서 필요할 때 **Pages를 다시 켜면 같은 주소로 즉시 복구**됩니다
-> (gh: `gh api -X POST repos/youmipark329-smc/beacon-observer-app/pages -f "source[branch]=main" -f "source[path]=/"`).
+> (gh: `gh api -X POST repos/youmipark329-smc/hair-observer-app/pages -f "source[branch]=main" -f "source[path]=/"`).
 > 이미 설치된 폰의 앱·데이터(IndexedDB)는 주소 비활성과 무관하게 유지됩니다.
 > **앱 업데이트:** service worker가 **network-first(v2)** 라, 소스를 고쳐 재호스팅하면
 > 설치된 기기도 **다음 온라인 실행 시 자동으로 최신본**을 받습니다(옛 버전 고착 없음). 오프라인이면 마지막 캐시로 동작.
@@ -55,7 +59,7 @@ PWA는 **HTTPS 주소로 열어야** "홈 화면에 추가 + 오프라인 설치
 ## 3. 홈 화면에 설치 (갤럭시 크롬)
 1. 위 주소를 **크롬**으로 연다.
 2. 우상단 **⋮ 메뉴 → "홈 화면에 추가"**(또는 하단에 뜨는 "앱 설치" 배너) 탭.
-3. 홈 화면에 **BEACON 관찰** 아이콘 생성 → 탭하면 **주소창 없는 전체화면 앱**으로 실행.
+3. 홈 화면에 **HAIR 관찰** 아이콘 생성 → 탭하면 **주소창 없는 전체화면 앱**으로 실행.
 4. 이후 오프라인(와이파이 끊김)에서도 실행·기록되고, 데이터는 폰에 남습니다.
 
 ## 4. 시각동기 설정 (⚙ 설정)
@@ -84,8 +88,8 @@ PWA는 **HTTPS 주소로 열어야** "홈 화면에 추가 + 오프라인 설치
 - **무 PII:** 실명·등록번호·주민번호·연락처·생년월일 등은 **입력 금지**. 익명 ID만.
 
 ## 6. 사양 근거 / 연계
-- 앱 사양서 `ward_observer_app_spec_v3_20260801.md` §4.4(시각동기)·§S2(단일 코딩)·§S4(요약).
-- 시각정합 `시각정합_상세사양_v3_20260814.md`(단조앵커·`/v1/time` 계약·flag 규칙).
+- 앱 사양서 `20260801_ward_observer_app_spec_v3.md` §4.4(시각동기)·§S2(단일 코딩)·§S4(요약).
+- 시각정합 `20260814_시각정합_상세사양_v3.md`(단조앵커·`/v1/time` 계약·flag 규칙).
 - κ(이중관찰)는 앱 밖 서버(`dual_observer_kappa.py`) 산출 — 앱은 각자 일반 코딩 후 CSV만 내보냄.
 
 ## 7. 한계 (정직 고지)

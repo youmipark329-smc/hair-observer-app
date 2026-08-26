@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#1F4E79">
-<title>BEACON 관찰코딩</title>
+<title>HAIR 관찰코딩</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <style>
@@ -159,7 +159,7 @@
 <body>
 <div class="app">
   <div class="top">
-    <span class="pid" id="pidlbl">BEACON 관찰코딩</span>
+    <span class="pid" id="pidlbl">HAIR 관찰코딩</span>
     <span class="clk" id="clk">--:--:--</span>
     <span class="sync" id="sync" role="button" tabindex="0" title="탭하여 지금 재동기"><span class="dot"></span><span id="synctxt">동기</span></span>
     <button class="gear" id="gear" type="button" aria-label="설정">⚙</button>
@@ -176,7 +176,8 @@
         <label class="f">환자 익명 ID (measurement_code)</label>
         <input class="t" id="s_pid" placeholder="예: P-016-001" maxlength="24" spellcheck="false" autocomplete="off">
         <label class="f">패치 시리얼 (device_serial · 등록연계 ★)</label>
-        <input class="t" id="s_serial" placeholder="예: MC-XXXXXXXX (환자 부착 패치 시리얼)" maxlength="32" spellcheck="false" autocomplete="off">
+        <input class="t" id="s_serial" placeholder="예: A030649 (패치 표면 표기 그대로)" maxlength="32" spellcheck="false" autocomplete="off">
+        <p class="senshint">패치 표면의 <b>영문1+숫자6</b>(예 A030649)을 그대로. 이 값이 서버 <b>serial_ecg_1</b>과 같아야 연계 이중검증이 됩니다.</p>
         <div class="two">
           <div><label class="f">병동 (set_assign)</label>
             <select class="t" id="s_set">
@@ -284,7 +285,7 @@
     </section>
 
   </div>
-  <div class="brand">BEACON 관찰코딩 · v1.11 (PWA) · <span id="verMode">—</span></div>
+  <div class="brand">HAIR 관찰코딩 · v1.12 (PWA) · <span id="verMode">—</span></div>
 </div>
 
 <div class="toast" id="toast">

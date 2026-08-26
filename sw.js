@@ -1,8 +1,8 @@
-/* BEACON 관찰코딩 · Service Worker · v2 (2026-08-14)
+/* HAIR 관찰코딩 · Service Worker · v2 (2026-08-14)
    전략: 앱 셸(HTML/JS/매니페스트/아이콘)은 network-first — 온라인이면 항상 최신,
    오프라인이면 캐시로 폴백. → 앱을 갱신·재배포하면 다음 접속 시 자동 반영(옛 버전 고착 방지).
    관찰 데이터는 IndexedDB(캐시와 무관). 시각 엔드포인트 등 외부 API는 항상 네트워크. */
-var CACHE='beacon-observer-v13';
+var CACHE='hair-observer-v15';
 var SHELL=['./','./index.html','./app.js','./manifest.webmanifest',
   './icons/icon-192.png','./icons/icon-512.png','./icons/icon-maskable-512.png'];
 
