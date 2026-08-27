@@ -153,6 +153,15 @@
   .pill.done{background:rgba(21,154,69,.14);color:var(--good)}
   :root[data-theme="dark"] .pill.open{color:#f0b072}
   .brand{font-size:11px;color:var(--muted);text-align:center;padding:6px 0 calc(10px + var(--safe-b))}
+  /* [D4] 저장 실패 배너 — 상단 고정·항상 보임·닫기 없음(사용자가 지울 수 없다) */
+  .savebanner{display:none}
+  .savebanner.show{display:block;position:sticky;top:52px;z-index:6;margin:0;padding:10px 12px;
+    background:var(--alert);color:#fff;font-size:12.5px;font-weight:800;line-height:1.45;
+    border-bottom:2px solid #7a0016}
+  /* [D4] 배너 안의 탈출구 — 저장 실패로 요약화면에 못 가도 여기서 바로 내보낸다 */
+  .banbtn{display:block;width:100%;margin-top:8px;border:0;border-radius:10px;
+    background:#fff;color:var(--alert);font-size:13px;font-weight:900;padding:9px 10px;
+    cursor:pointer;font-family:inherit}
   @media (prefers-reduced-motion:reduce){.toast,.stbtn,.chip{transition:none}}
 </style>
 </head>
@@ -163,6 +172,12 @@
     <span class="clk" id="clk">--:--:--</span>
     <span class="sync" id="sync" role="button" tabindex="0" title="탭하여 지금 재동기"><span class="dot"></span><span id="synctxt">동기</span></span>
     <button class="gear" id="gear" type="button" aria-label="설정">⚙</button>
+  </div>
+  <!-- [D4] 저장 실패·시계 되돌림 시에만 표시되고, 이후 지워지지 않는다.
+       배너 안의 [CSV 저장]은 화면과 무관하게 **메모리의 현재 세션**을 내보낸다. -->
+  <div class="savebanner" id="savebanner" role="alert" aria-live="assertive">
+    <span id="savebannertxt"></span>
+    <button class="banbtn" id="bannerCsv" type="button">CSV 저장</button>
   </div>
   <div class="scroll" id="scroll">
 
@@ -285,7 +300,8 @@
     </section>
 
   </div>
-  <div class="brand">HAIR 관찰코딩 · v1.12 (PWA) · <span id="verMode">—</span></div>
+  <!-- [D20] 버전 표기는 app.js 의 APP_VERSION 에서 주입된다(정적 텍스트는 스크립트 미실행 시 폴백) -->
+  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.14</span> (PWA) · <span id="verMode">—</span></div>
 </div>
 
 <div class="toast" id="toast">
