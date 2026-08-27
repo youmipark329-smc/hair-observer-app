@@ -185,11 +185,24 @@
     <section id="startScreen">
       <div class="card">
         <h2>새 관찰 세션 시작</h2>
-        <p class="lead">환자 <b>익명 ID(measurement_code)</b> 만 입력합니다. 실명·등록번호·주민번호 등 개인정보는 절대 입력하지 마세요.</p>
+        <p class="lead">환자 <b>익명 ID</b> 만 입력합니다. 실명·등록번호·주민번호 등 개인정보는 절대 입력하지 마세요.</p>
         <label class="f">관찰자 ID (observer_id)</label>
-        <input class="t" id="s_obs" placeholder="예: OBS-01" maxlength="16" spellcheck="false" autocomplete="off">
-        <label class="f">환자 익명 ID (measurement_code)</label>
-        <input class="t" id="s_pid" placeholder="예: P-016-001" maxlength="24" spellcheck="false" autocomplete="off">
+        <select class="t" id="s_obs">
+          <option value="">관찰자 선택</option>
+          <option value="OBS-01">OBS-01</option>
+          <option value="OBS-02">OBS-02</option>
+          <option value="OBS-03">OBS-03</option>
+          <option value="OBS-04">OBS-04</option>
+          <option value="OBS-05">OBS-05</option>
+          <option value="OBS-06">OBS-06</option>
+          <option value="OBS-07">OBS-07</option>
+          <option value="OBS-08">OBS-08</option>
+          <option value="OBS-09">OBS-09</option>
+          <option value="OBS-10">OBS-10</option>
+        </select>
+        <label class="f">환자 익명 ID (patient_id · 결합키 ★)</label>
+        <input class="t" id="s_pid" placeholder="예: P-16E-001" maxlength="24" spellcheck="false" autocomplete="off">
+        <p class="senshint">㉠ 연결로그에 <b>사전배정된 익명ID</b> 를 그대로 입력합니다(형식 <b>P-{병동}-{일련3자리}</b>). 씨어스 <b>measurement_code</b> 는 관찰 시점에 아직 발급되지 않으므로 여기에 입력하지 않습니다.</p>
         <label class="f">패치 시리얼 (device_serial · 등록연계 ★)</label>
         <input class="t" id="s_serial" placeholder="예: A030649 (패치 표면 표기 그대로)" maxlength="32" spellcheck="false" autocomplete="off">
         <p class="senshint">패치 표면의 <b>영문1+숫자6</b>(예 A030649)을 그대로. 이 값이 서버 <b>serial_ecg_1</b>과 같아야 연계 이중검증이 됩니다.</p>
@@ -210,6 +223,12 @@
             </select>
           </div>
         </div>
+        <label class="f">이중코딩 세션 (dual_code · κ)</label>
+        <select class="t" id="s_dual">
+          <option value="0">아니오 — 단독 관찰</option>
+          <option value="1">예 — 같은 환자를 두 관찰자가 동시에 코딩(κ)</option>
+        </select>
+        <p class="senshint">두 관찰자가 <b>같은 환자·같은 시간</b>을 동시에 코딩하는 계획된 신뢰도 블록일 때만 [예]. 근무 <b>교대</b>는 [아니오] 입니다 — 교대는 이어붙이고 이중코딩은 대조하므로, 분석에서 정반대로 다룹니다.</p>
         <button class="big" id="startBtn" type="button">▶ 관찰 시작</button>
         <p class="hint">등록 일시는 <b>관찰 시작</b>을 누른 시각으로 자동 저장됩니다 · 시각동기: <span id="startSync">확인 중…</span></p>
       </div>
@@ -277,9 +296,22 @@
         <h2>설정</h2>
         <label class="f">서버 시각 엔드포인트 (선택)</label>
         <input class="t" id="cfg_time" placeholder="예: https://research.smc/api/v1/time" spellcheck="false" autocomplete="off">
-        <p class="hint">비우면 <b>기기 시계(안드로이드 자동 날짜·시각 = 외부망 NTP)</b> 를 사용하고 오프셋 0으로 기록합니다. 입력 시 앱이 60초마다 이 주소로 서버시각을 받아 <b>오프셋+왕복지연</b> 을 계산합니다(JSON <code>{now:epoch_ms}</code> 또는 HTTP Date 헤더 지원 · CORS 허용 필요).</p>
+        <p class="hint">비우면 <b>기기 시계(안드로이드 자동 날짜·시각 = 외부망 NTP)</b> 를 사용합니다. 이때 <b>오프셋은 측정하지 않으므로 CSV 에 빈 값</b>으로 남습니다(0 이 아닙니다 — 0 은 '측정했더니 0 ms' 라는 뜻이 되어 동기 게이트를 거짓 통과시킵니다). 입력 시 앱이 60초마다 이 주소로 서버시각을 받아 <b>오프셋+왕복지연</b> 을 계산합니다(JSON <code>{now:epoch_ms}</code> 또는 HTTP Date 헤더 지원 · CORS 허용 필요).</p>
         <label class="f">기본 관찰자 ID</label>
-        <input class="t" id="cfg_obs" placeholder="예: OBS-01" maxlength="16" spellcheck="false" autocomplete="off">
+        <select class="t" id="cfg_obs">
+          <option value="">관찰자 선택</option>
+          <option value="OBS-01">OBS-01</option>
+          <option value="OBS-02">OBS-02</option>
+          <option value="OBS-03">OBS-03</option>
+          <option value="OBS-04">OBS-04</option>
+          <option value="OBS-05">OBS-05</option>
+          <option value="OBS-06">OBS-06</option>
+          <option value="OBS-07">OBS-07</option>
+          <option value="OBS-08">OBS-08</option>
+          <option value="OBS-09">OBS-09</option>
+          <option value="OBS-10">OBS-10</option>
+        </select>
+        <p class="hint">실명·이니셜은 넣지 않습니다. <b>OBS-NN ↔ 실명</b> 대응은 위임 로그(delegation log)에 두고, 연결로그와 같은 등급으로 보관합니다.</p>
         <label class="f">기본 병동/세트</label>
         <input class="t" id="cfg_set" placeholder="예: 16E-A" maxlength="16" spellcheck="false" autocomplete="off">
         <label class="f">화면 테마</label>
@@ -301,7 +333,7 @@
 
   </div>
   <!-- [D20] 버전 표기는 app.js 의 APP_VERSION 에서 주입된다(정적 텍스트는 스크립트 미실행 시 폴백) -->
-  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.14</span> (PWA) · <span id="verMode">—</span></div>
+  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.15</span> (PWA) · <span id="verMode">—</span></div>
 </div>
 
 <div class="toast" id="toast">

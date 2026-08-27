@@ -1,4 +1,4 @@
-/* HAIR 병동 행동 관찰 코딩 앱 (PWA) · v1.14 · 2026-08-27
+/* HAIR 병동 행동 관찰 코딩 앱 (PWA) · v1.15 · 2026-08-27
    단일 연속 코딩(S2) — 관찰자는 4-상태(LIE/SIT/STD/WLK)만 태핑, 전환·bed-exit 자동 도출.
    시각동기: HTTP /time(옵션) + 단조앵커(performance.now) → t_server/t_device/clock_offset_ms/sync_flag.
    저장: IndexedDB(오프라인·재실행 보존). 결합: 서버 3-way(행동×알람×판정), 무 PII. */
@@ -10,8 +10,11 @@
      3) sw.js:6 : var CACHE='hair-observer-vNN'
    버전을 올릴 때는 세 곳을 함께 바꾸고 `node verify_version.js` 로 확인한다.
    v1.14 변경: 전이 bout 을 전이행(TRANS_SEC) + 도착 자세행 2행으로 분리 [D9],
-               bout 행 in_bed_move 파생 [D11], 시계 slew [D6], 재개 gap 보존 [D2]. */
-var APP_VERSION='1.14';
+               bout 행 in_bed_move 파생 [D11], 시계 slew [D6], 재개 gap 보존 [D2].
+   v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
+               patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
+               observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
+var APP_VERSION='1.15';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -27,12 +30,31 @@ var MOT=[{c:'tremor',k:'떨림'},{c:'brush_repeat',k:'반복상지'},{c:'scratch
    예전처럼 WLK 가 끼면 도착코드로 뭉개면 LIE→WLK 가 'WLK' 로 사라져 이중검증이 불가능해진다.
    bed-exit 판정은 transCode 가 아니라 (from==='LIE' && to∈{SIT,STD}) 로만 한다(io_load.py:576 과 동일 규칙). */
 function transCode(from,to){ return from+'→'+to; }
-/* ModeA 17컬럼(코딩시트 스키마 동일 순서) + 시각동기 6컬럼(결합키) + [D20] 신설 2컬럼 = 25컬럼
+/* [D21] 익명ID 정본 형식 — ㉠ 연결로그 프리필과 같은 형식이어야 한다.
+   자유입력을 허용하면 P16E-001 / p-16e-001 / P-16E-01 이 전부 통과하고,
+   결합키가 깨진 사실은 몇 주 뒤 병원 PC 결합 단계에서야 드러난다(그때는 되돌릴 수 없다).
+   ※ measurement_code(씨어스 세션키)는 관찰 시점에 존재하지 않는다 — 여기 들어올 수 없다. */
+var PID_RE=/^P-(16E|15E)-\d{3}$/;
+/* [D21] 관찰자 로스터. 실명·이니셜은 넣지 않는다(직원 준식별자이고 배포본 IndexedDB 에 남는다).
+   OBS-NN ↔ 실명 대응은 위임 로그(ICH E6 §4.1.5)에 둔다. */
+function setObsSel(id,val){
+  var el=$(id); if(!el) return;
+  val=(val||'').trim();
+  /* 자유입력 시절(≤v1.14) CFG 에 로스터 밖 값이 남아 있으면 select 가 조용히 빈 값이 되고
+     시작이 막힌다. 남은 값을 옵션으로 살려 두고 선택 상태로 만든다. */
+  if(val){
+    var has=false, i;
+    for(i=0;i<el.options.length;i++){ if(el.options[i].value===val){ has=true; break; } }
+    if(!has){ var o=document.createElement('option'); o.value=val; o.textContent=val+' (구형 입력)'; el.appendChild(o); }
+  }
+  el.value=val;
+}
+/* ModeA 17컬럼(코딩시트 스키마 동일 순서) + 시각동기 6컬럼(결합키) + [D20] 2컬럼 + [D21] 1컬럼 = 26컬럼
    ※ 기존 23컬럼의 이름·순서는 절대 바꾸지 않는다. 신설분은 반드시 맨 뒤에 덧붙인다. */
 var HEAD_CORE=['record_id','observer_id','patient_id','date','time_start','time_end','code','is_bed_exit',
   'context','in_bed_move','sensor_status','uncertain','duration_sec','note','enroll_date','set_assign','motion_detail'];
 var HEAD_TIME=['t_server_start','t_server_end','clock_offset_ms','sync_flag','session_id','device_serial'];
-var HEAD_EXT=['app_version','rtt_ms'];                          // [D20] 신설 — 맨 뒤 고정
+var HEAD_EXT=['app_version','rtt_ms','dual_code'];              // [D20][D21] 신설 — 맨 뒤 고정
 var HEAD=HEAD_CORE.concat(HEAD_TIME).concat(HEAD_EXT);
 
 /* ───────── 시각동기 모듈 (단조앵커 + Cristian) ───────── */
@@ -144,7 +166,7 @@ function paintSync(){
   else if(Clock.flag==='FAIL'){ el.classList.add('fail'); txt='동기실패'; }
   $('synctxt').textContent=txt;
   var info=(Clock.flag==='OK'?('OK · offset '+Clock.offsetMs+' ms · rtt '+Clock.rtt+' ms')
-          :Clock.flag==='DEVICE'?'기기 시계 사용(오프셋 0) — 외부망 NTP 자동동기 가정'
+          :Clock.flag==='DEVICE'?'기기 시계 사용(오프셋 미측정 — CSV 빈 값) — 외부망 NTP 자동동기 가정'
           :'동기 실패 — 직전 오프셋 '+Clock.offsetMs+' ms 유지, 기록은 flag=FAIL');
   var ci=$('cfgSyncInfo'); if(ci) ci.textContent=info;
   var ss=$('startSync'); if(ss) ss.textContent=(Clock.flag==='OK'?'서버동기 OK ('+Clock.offsetMs+' ms)':Clock.flag==='DEVICE'?'기기시계(외부망 NTP)':'동기 실패');
@@ -191,6 +213,7 @@ function newSession(meta){
   return {
     id:'S'+Date.now()+'-'+Math.floor(performance.now()),
     obs:meta.obs, pid:meta.pid, set:meta.set||'', enroll:meta.enroll||'', serial:meta.serial||'', sessNote:meta.note||'',
+    dual:meta.dual?1:0,                              // [D21] 이중코딩(κ) 세션 표시 — 전 행에 상속
     createdDevice:Date.now(),
     cur:(meta.start||'LIE'), ctx:'none', unc:false, sensor:'on', reminded:false, ended:false, endTs:null,
     sessionStart:ts, boutStart:ts, boutStartDev:Date.now(), boutEnter:(meta.start||'LIE'), boutIsBed:false,
@@ -212,6 +235,7 @@ function migrate(sess){
   if(!sess.boutRid2) sess.boutRid2='r'+(++sess.seq);   // [D9] 상태행 몫
   if(!sess.ctxRid) sess.ctxRid='r'+(++sess.seq);
   if(!sess.sensor) sess.sensor='unknown';
+  if(sess.dual!==1) sess.dual=0;                       // [D21] 구형 세션은 단독 관찰로 본다
   if(!sess.bouts) sess.bouts=[]; if(!sess.ctxBouts) sess.ctxBouts=[];
   if(!sess.motions) sess.motions=[]; if(!sess.markers) sess.markers=[]; if(!sess.log) sess.log=[];
   return sess;
@@ -442,7 +466,7 @@ function sessRows(sess,includeHead,nowTs){
         r.code,r.bed,b.ctx,r.ibm,senOut(b),b.unc?1:0,Math.max(0,(r.end-r.start)/1000).toFixed(1),(r.last?(b.note||''):''),
         sess.enroll,sess.set||'','',
         isoMs(r.start),r.open?'':isoMs(r.end),offOut(b),b.flag||'',sess.id,sess.serial||'',
-        APP_VERSION,rttOut(b)]);
+        APP_VERSION,rttOut(b),sess.dual]);
     });
   });
   // [D1] context 행종: is_bed_exit=0 · motion_detail·in_bed_move 공란 · 시각은 구간 경계
@@ -450,19 +474,19 @@ function sessRows(sess,includeHead,nowTs){
     out.push([rid(cb.rid),sess.obs,sess.pid,dateStr(cb.start),clock(cb.start),cb.open?'(진행중)':clock(cb.end),
       'context',0,cb.ctx,'',senOut(cb),0,cb.dur.toFixed(1),'',sess.enroll,sess.set||'','',
       isoMs(cb.start),cb.open?'':isoMs(cb.end),offOut(cb),cb.flag||'',sess.id,sess.serial||'',
-      APP_VERSION,rttOut(cb)]);
+      APP_VERSION,rttOut(cb),sess.dual]);
   });
   (sess.motions||[]).forEach(function(m){
     out.push([rid(m.rid),sess.obs,sess.pid,dateStr(m.t),clock(m.t),clock(m.t),
       'motion',0,'',m.ibm?1:0,senOut(m),m.unc?1:0,'0.0',m.note||'',sess.enroll,sess.set||'',m.code,
       isoMs(m.t),isoMs(m.t),offOut(m),m.flag||'',sess.id,sess.serial||'',
-      APP_VERSION,rttOut(m)]);
+      APP_VERSION,rttOut(m),sess.dual]);
   });
   (sess.markers||[]).forEach(function(k){
     out.push([rid(k.rid),sess.obs,sess.pid,dateStr(k.t),clock(k.t),clock(k.t),
       'sync_marker',0,'',0,senOut(k),0,'0.0','',sess.enroll,sess.set||'','',
       isoMs(k.t),isoMs(k.t),offOut(k),k.flag||'',sess.id,sess.serial||'',
-      APP_VERSION,rttOut(k)]);
+      APP_VERSION,rttOut(k),sess.dual]);
   });
   return out;
 }
@@ -540,7 +564,7 @@ function refreshList(){
       var dur=s.ended&&s.endTs?fmtDur((s.endTs-s.sessionStart)/1000):'진행중';
       var pill=s.ended?'<span class="pill done">종료</span>':'<span class="pill open">진행중</span>';
       li.innerHTML='<div class="meta"><div class="m1">'+esc(s.pid)+pill+'</div>'+
-        '<div class="m2">'+esc(s.obs)+(s.set?(' · '+esc(s.set)):'')+' · '+dateStr(s.createdDevice)+' '+clock(s.createdDevice)+' · '+dur+'</div></div>';
+        '<div class="m2">'+esc(s.obs)+(s.set?(' · '+esc(s.set)):'')+(s.dual?' · κ 이중코딩':'')+' · '+dateStr(s.createdDevice)+' '+clock(s.createdDevice)+' · '+dur+'</div></div>';
       var open=document.createElement('button'); open.className='sbtn'; open.textContent=s.ended?'CSV':'이어하기';
       open.addEventListener('click',function(){ if(s.ended){ download('HAIR_'+s.pid+'_'+s.id+'.csv', matrixToCsv(sessRows(s,true,s.endTs))); } else { resumeSession(s); } });
       li.appendChild(open); ul.appendChild(li);
@@ -551,14 +575,48 @@ function esc(t){return String(t==null?'':t).replace(/[<>&]/g,function(c){return{
 
 /* ───────── 세션 시작/재개 ───────── */
 function startSession(){
-  var obs=($('s_obs').value||'').trim(), pid=($('s_pid').value||'').trim();
-  if(!obs){ alert('관찰자 ID를 입력하세요.'); $('s_obs').focus(); return; }
-  if(!pid){ alert('환자 익명 ID(measurement_code)를 입력하세요.'); $('s_pid').focus(); return; }
+  var obs=($('s_obs').value||'').trim();
+  var pid=($('s_pid').value||'').trim().toUpperCase();
+  if(!obs){ alert('관찰자 ID를 선택하세요.'); $('s_obs').focus(); return; }
+  if(!pid){ alert('환자 익명 ID(patient_id)를 입력하세요.'); $('s_pid').focus(); return; }
+  if(!PID_RE.test(pid)){
+    $('s_pid').value=pid; $('s_pid').focus();
+    alert('환자 익명 ID 형식이 맞지 않습니다.\n\n입력값 : '+pid+
+          '\n정본 형식 : P-16E-001  (P-{병동}-{일련3자리})\n\n'+
+          '㉠ 연결로그에 사전배정된 익명ID를 그대로 입력하세요.\n'+
+          '※ 씨어스 measurement_code 는 여기에 입력하지 않습니다.');
+    return;
+  }
+  $('s_pid').value=pid;                             // [D21] 정규화 결과를 화면에도 되돌려 준다
+  /* [D21] 익명ID 안의 병동과 set_assign 을 대조한다. 다르면 전동(轉棟)일 수 있으므로
+     막지 않고 확인만 받는다. 분석은 set_assign 을 쓰고 익명ID를 파싱하지 않는다. */
+  var set=($('s_set').value||'').trim();
+  var wardInPid=pid.split('-')[1];
+  if(!set){ set=wardInPid; if($('s_set')) $('s_set').value=set; }
+  else if(set!==wardInPid){
+    if(!confirm('익명ID의 병동('+wardInPid+')과 선택한 병동('+set+')이 다릅니다.\n\n'+
+                '전동(轉棟) 환자라면 정상입니다. 이대로 진행할까요?')){ $('s_set').focus(); return; }
+  }
+  /* [D21] 같은 익명ID의 기존 세션 확인. 패치 교체·근무 교대·이중코딩은 모두 정상이므로
+     막지 않고 알리기만 한다(막으면 정당한 재관찰이 기록되지 못한다).
+     조회 실패가 세션 시작을 막아서도 안 되므로 catch 에서도 그대로 진행한다. */
+  idbAll('sessions').then(function(list){
+    var n=0, i;
+    for(i=0;i<(list||[]).length;i++){ if(String((list[i].pid)||'').toUpperCase()===pid) n++; }
+    if(n && !confirm('이미 이 익명ID로 저장된 세션이 '+n+'건 있습니다.\n\n'+
+                     '패치 교체 · 근무 교대 · 이중코딩(κ)이면 그대로 진행하세요.\n'+
+                     '다른 환자라면 [취소] 후 익명ID를 다시 확인하세요.\n\n진행할까요?')) return;
+    beginSession(obs,pid,set);
+  }).catch(function(){ beginSession(obs,pid,set); });
+}
+function beginSession(obs,pid,set){
   var startState=($('s_start')&&$('s_start').value)||'LIE';
+  var dual=($('s_dual')&&$('s_dual').value==='1')?1:0;
   var enroll=stampSec(Clock.now());                 // 관찰 시작 누른 시각 자동 저장
-  S=newSession({obs:obs,pid:pid,set:($('s_set').value||'').trim(),enroll:enroll,serial:($('s_serial').value||'').trim(),start:startState});
+  S=newSession({obs:obs,pid:pid,set:set,enroll:enroll,serial:($('s_serial').value||'').trim(),
+                start:startState,dual:dual});
   // [D4] 설정 저장 실패가 세션 시작을 막지는 않지만, 미처리 rejection 으로 새지 않게 한다
-  CFG.obs=obs; CFG.set=($('s_set').value||'').trim(); saveCfg().catch(function(){});
+  CFG.obs=obs; CFG.set=set; saveCfg().catch(function(){});
   persistNow().then(function(){ show('codeScreen'); render(); }).catch(saveFail);
 }
 /* [D2] 마지막으로 '관찰이 살아 있었다'고 말할 수 있는 시각 */
@@ -648,7 +706,7 @@ function resumeSession(sess){
 
 /* ───────── 설정 화면 ───────── */
 function openSettings(){
-  $('cfg_time').value=CFG.endpoint||''; $('cfg_obs').value=CFG.obs||''; $('cfg_set').value=CFG.set||''; $('cfg_theme').value=CFG.theme||'system';
+  $('cfg_time').value=CFG.endpoint||''; setObsSel('cfg_obs',CFG.obs); $('cfg_set').value=CFG.set||''; $('cfg_theme').value=CFG.theme||'system';
   paintSync(); show('settingsScreen');
 }
 function commitCfg(){
@@ -658,7 +716,7 @@ function commitCfg(){
   // [D4] 설정 저장이 실패해도 화면은 닫아 주되(입력값은 메모리에 반영됨) 실패는 배너로 알린다
   saveCfg().catch(function(e){ saveFail(e); }).then(function(){ return Clock.sync(); }).then(backFromSettings);
 }
-function backFromSettings(){ if(S&&!S.ended){ show('codeScreen'); render(); } else { $('s_obs').value=CFG.obs||''; $('s_set').value=CFG.set||''; show('startScreen'); refreshList(); } }
+function backFromSettings(){ if(S&&!S.ended){ show('codeScreen'); render(); } else { setObsSel('s_obs',CFG.obs); $('s_set').value=CFG.set||''; show('startScreen'); refreshList(); } }
 
 /* ───────── 이벤트 바인딩 ───────── */
 function bind(){
@@ -685,7 +743,12 @@ function bind(){
   $('saveCsv').addEventListener('click',exportCurrent);
   /* [D4] 배너 안의 탈출구 — 저장 실패로 요약화면에 못 가도 여기서 메모리 그대로 내보낸다. */
   if($('bannerCsv')) $('bannerCsv').addEventListener('click',exportCurrent);
-  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_serial').value=''; $('s_obs').value=CFG.obs||''; if($('s_set'))$('s_set').value=CFG.set||''; if($('s_start'))$('s_start').value='LIE'; show('startScreen'); refreshList(); });
+  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_serial').value=''; setObsSel('s_obs',CFG.obs); if($('s_set'))$('s_set').value=CFG.set||''; if($('s_start'))$('s_start').value='LIE'; if($('s_dual'))$('s_dual').value='0'; show('startScreen'); refreshList(); });
+  /* [D21] 익명ID 는 입력 즉시 대문자로 고정한다(p-16e-001 을 조용히 통과시키지 않는다). */
+  if($('s_pid')) $('s_pid').addEventListener('input',function(){
+    var p=this.selectionStart, v=this.value.toUpperCase();
+    if(v!==this.value){ this.value=v; try{ this.setSelectionRange(p,p); }catch(e){} }
+  });
   $('exportAll').addEventListener('click',function(){
     idbAll('sessions').then(function(list){
       /* [D4] 저장이 실패한 상태에서도 이 버튼이 낡은 IndexedDB 사본을 내보내지 않도록
@@ -729,7 +792,7 @@ function boot(){
   idbOpen().then(loadCfg).then(function(){
     buildButtons(); bind();
     $('clk').textContent=clock(Clock.now());
-    $('s_obs').value=CFG.obs||''; if($('s_set')) $('s_set').value=CFG.set||'';
+    setObsSel('s_obs',CFG.obs); if($('s_set')) $('s_set').value=CFG.set||'';
     return refreshList();
   }).then(function(){
     return Clock.sync();
