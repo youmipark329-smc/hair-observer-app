@@ -4,7 +4,7 @@
      · sw.js      : var CACHE='hair-observer-vNN'  (버전을 올리면 NN 도 올린다)
    불일치면 exit 1. CI/pre-commit 훅에 걸어 세 곳이 손으로 갈라지는 것을 막는다. */
 'use strict';
-var EXPECTED_CACHE={'1.13':16,'1.14':17,'1.15':18,'1.16':19,'1.17':20,'1.18':21};   // 버전 ↔ SW 캐시 번호 정본 매핑
+var EXPECTED_CACHE={'1.13':16,'1.14':17,'1.15':18,'1.16':19,'1.17':20,'1.18':21,'1.19':22};   // 버전 ↔ SW 캐시 번호 정본 매핑
 var fs=require('fs'), path=require('path'), d=__dirname;
 function read(f){ return fs.readFileSync(path.join(d,f),'utf8'); }
 var app=read('app.js'), html=read('index.html'), sw=read('sw.js');

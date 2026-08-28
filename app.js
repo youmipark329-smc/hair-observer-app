@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.18';
+var APP_VERSION='1.19';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -674,11 +674,15 @@ function pidMode(){
   var manual=(sel.value==='__manual__');
   $('s_pid_manualbox').classList.toggle('hidden',!manual);
   if(manual){
-    var ward=($('s_set').value||CFG.set||'16E').trim().toUpperCase();
-    if(ward!=='16E'&&ward!=='15E') ward='16E';
-    $('s_pid_prefix').textContent='P-'+ward+'-';
+    /* [D25] 병동은 이 줄의 드롭다운이 정본이다. 값이 없으면(첫 전환) 아래쪽
+       set_assign / CFG 에서 한 번만 끌어와 초기값을 잡는다. */
+    var ward=normWard($('s_pid_ward').value);
+    if(!ward){ ward=normWard($('s_set').value)||normWard(CFG.set)||'16E'; $('s_pid_ward').value=ward; }
     var num=($('s_pid_num').value||'').replace(/\D/g,'');
     $('s_pid').value=num?('P-'+ward+'-'+pad3(num)):'';
+    /* 목록 선택과 같은 동작 — 고른 병동을 set_assign 에도 반영한다.
+       전동(轉棟)이면 그 뒤에 set_assign 만 바꾸면 되고, startSession 의 대조가 잡아 준다. */
+    if($('s_set') && normWard($('s_set').value)!==ward) $('s_set').value=ward;
   }else{
     $('s_pid').value=sel.value||'';
     /* 목록에서 고른 ID 는 병동을 이미 품고 있다 — set_assign 을 맞춰 두면
@@ -873,7 +877,7 @@ function bind(){
   $('saveCsv').addEventListener('click',exportCurrent);
   /* [D4] 배너 안의 탈출구 — 저장 실패로 요약화면에 못 가도 여기서 메모리 그대로 내보낸다. */
   if($('bannerCsv')) $('bannerCsv').addEventListener('click',exportCurrent);
-  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_pid_sel').value=''; $('s_pid_num').value=''; $('s_serial').value=''; $('memo').value=''; memoWarn(); setObsSel('s_obs',CFG.obs); setWard('s_set',CFG.set); if($('s_start'))$('s_start').value='LIE'; if($('s_dual'))$('s_dual').value='0'; show('startScreen'); refreshList(); });
+  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_pid_sel').value=''; $('s_pid_num').value=''; setWard('s_pid_ward',CFG.set); $('s_serial').value=''; $('memo').value=''; memoWarn(); setObsSel('s_obs',CFG.obs); setWard('s_set',CFG.set); if($('s_start'))$('s_start').value='LIE'; if($('s_dual'))$('s_dual').value='0'; show('startScreen'); refreshList(); });
   /* [D22] memo 는 CSV note 로 직행하는 유일한 자유텍스트다. 등록번호·연락처가 흘러드는 것을
      막되, 코딩 흐름은 끊지 않는다 — 모달이 아니라 입력칸 경고 표시로만 알린다
      (전이 탭 시점에 모달을 띄우면 시각이 critical 한 순간에 CRC 를 붙잡게 된다). */
@@ -881,6 +885,7 @@ function bind(){
   /* [D23] 목록 선택 · 3자리 입력 · 병동 변경 → 모두 #s_pid 를 다시 계산한다.
      [D21] 대문자 고정은 여기서 불필요해졌다 — 목록 값은 정본이고, 직접입력은 숫자뿐이다. */
   if($('s_pid_sel')) $('s_pid_sel').addEventListener('change',pidMode);
+  if($('s_pid_ward')) $('s_pid_ward').addEventListener('change',pidMode);
   if($('s_pid_num')) $('s_pid_num').addEventListener('input',function(){
     var v=this.value.replace(/\D/g,'').slice(0,3);        // 숫자 외 입력은 즉시 버린다
     if(v!==this.value) this.value=v;

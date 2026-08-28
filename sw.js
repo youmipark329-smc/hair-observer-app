@@ -1,5 +1,5 @@
-/* HAIR 관찰코딩 · Service Worker · app v1.18 (2026-08-28)
-   [D20] CACHE 이름은 app.js 의 APP_VERSION 과 함께 올린다(v1.18 ↔ hair-observer-v21).
+/* HAIR 관찰코딩 · Service Worker · app v1.19 (2026-08-28)
+   [D20] CACHE 이름은 app.js 의 APP_VERSION 과 함께 올린다(v1.19 ↔ hair-observer-v22).
    전략: 앱 셸(HTML/JS/매니페스트/아이콘)은 network-first — 온라인이면 항상 최신,
    오프라인이면 캐시로 폴백. → 앱을 갱신·재배포하면 다음 접속 시 자동 반영(옛 버전 고착 방지).
    관찰 데이터는 IndexedDB(캐시와 무관). 시각 엔드포인트 등 외부 API는 항상 네트워크.
@@ -13,7 +13,7 @@
    Pages 는 설치 직후 꺼두므로 네트워크에서 얻을 이득이 0인데 대기 비용만 문다.
    → 캐시 적중이 있으면 네트워크에 1.5초만 준다. 늦게 온 응답도 캐시에는 반영되므로
      '다음 실행 시 최신' 이라는 network-first 의 목적은 그대로 유지된다. */
-var CACHE='hair-observer-v21';
+var CACHE='hair-observer-v22';
 var NET_TIMEOUT=1500;
 var SHELL=['./','./index.html','./app.js','./manifest.webmanifest',
   './icons/icon-192.png','./icons/icon-512.png','./icons/icon-maskable-512.png'];

@@ -28,9 +28,11 @@
   /* [D22] memo 에 등록번호·연락처로 보이는 숫자열이 들어오면 붉게 — 저장은 막지 않는다 */
   .memo.pii{border-color:#c1121f!important;background:rgba(193,18,31,.07)}
   /* [D23] 직접 입력 모드 — 접두사는 병동 드롭다운에서 나오고 CRC 는 3자리만 친다 */
-  .pidman{display:flex;gap:8px;align-items:center;margin-top:8px}
-  .pidman .pidpre{font-weight:800;font-size:16px;letter-spacing:.5px;white-space:nowrap}
-  .pidman .t{margin:0;flex:1;font-size:18px;font-weight:800;letter-spacing:2px;text-align:center}
+  .pidman{display:flex;gap:6px;align-items:center;margin-top:8px}
+  .pidman .pidpre{font-weight:800;font-size:17px;letter-spacing:.5px;white-space:nowrap}
+  .pidman .t{margin:0;font-size:17px;font-weight:800}
+  .pidman #s_pid_ward{flex:0 0 auto;width:104px;padding-left:10px;padding-right:6px}
+  .pidman #s_pid_num{flex:1;min-width:0;letter-spacing:3px;text-align:center}
   textarea.t{font-family:inherit;font-size:13px;line-height:1.5;resize:vertical}
 
   /* top bar */
@@ -229,8 +231,15 @@
           <option value="">— 사전배정 목록에서 선택 —</option>
           <option value="__manual__">✎ 목록에 없음 — 직접 입력</option>
         </select>
+        <!-- [D25] v1.19 — 병동을 ID 줄 안에서 직접 고른다. 종전에는 아래쪽 「병동」
+             드롭다운에서 파생된 읽기 전용 글자여서 손이 두 번 갔다. -->
         <div id="s_pid_manualbox" class="hidden pidman">
-          <span class="pidpre" id="s_pid_prefix">P-16E-</span>
+          <span class="pidpre">P-</span>
+          <select class="t" id="s_pid_ward">
+            <option value="16E">16E</option>
+            <option value="15E">15E</option>
+          </select>
+          <span class="pidpre">-</span>
           <input class="t" id="s_pid_num" inputmode="numeric" pattern="[0-9]*" maxlength="3"
                  placeholder="001" spellcheck="false" autocomplete="off">
         </div>
@@ -379,7 +388,7 @@
 
   </div>
   <!-- [D20] 버전 표기는 app.js 의 APP_VERSION 에서 주입된다(정적 텍스트는 스크립트 미실행 시 폴백) -->
-  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.18</span> (PWA) · <span id="verMode">—</span></div>
+  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.19</span> (PWA) · <span id="verMode">—</span></div>
 </div>
 
 <div class="toast" id="toast">
