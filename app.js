@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.20';
+var APP_VERSION='1.21';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -684,20 +684,29 @@ function pidMode(){
     if(!ward){ ward=normWard($('s_set')&&$('s_set').value)||normWard(CFG.set)||'16E'; wardSel.value=ward; }
     var num=(numEl.value||'').replace(/\D/g,'');
     pidEl.value=num?('P-'+ward+'-'+pad3(num)):'';
-    /* 목록 선택과 같은 동작 — 고른 병동을 set_assign 에도 반영한다.
-       전동(轉棟)이면 그 뒤에 set_assign 만 바꾸면 되고, startSession 의 대조가 잡아 준다. */
-    if($('s_set') && normWard($('s_set').value)!==ward) $('s_set').value=ward;
   }else{
     pidEl.value=sel.value||'';
-    /* 목록에서 고른 ID 는 병동을 이미 품고 있다 — set_assign 을 맞춰 두면
-       startSession 의 병동 대조가 헛되이 confirm 을 띄우지 않는다. */
-    if(sel.value){ var w=sel.value.split('-')[1]; if($('s_set')) $('s_set').value=w; }
   }
+  /* [D27] set_assign 동기화는 여기서 하지 않는다. pidMode 는 s_set 의 change 에서도
+     불리므로, 여기서 맞추면 CRC 가 전동(轉棟) 때문에 set_assign 만 바꾼 것을 **즉시
+     되돌려 버린다**(v1.19~v1.20 실측). 동기화는 익명ID 쪽을 건드린 순간에만 한다
+     → syncSetFromPid(). */
   var v=pidEl.value;
   if($('s_pid_echo')) $('s_pid_echo').innerHTML=v
     ? '이 세션의 <b>patient_id = '+v+'</b> 로 저장됩니다. ㉠ 연결로그의 값과 같은지 확인하세요.'
     : '㉠ 연결로그에 <b>사전배정된 익명ID</b> 만 씁니다. 목록은 <b>설정</b>에서 붙여넣어 갱신합니다. 씨어스 <b>measurement_code</b> 는 여기에 넣지 않습니다.';
 }
+/* [D27] 익명ID 의 병동을 set_assign 에 반영한다. **익명ID 쪽을 고른 순간에만** 부른다
+   (목록에서 ID 선택 · 직접입력의 병동 변경). 그 뒤 CRC 가 set_assign 만 따로 바꾸면
+   그대로 남고, 전동(轉棟) 여부는 startSession 의 확인창이 묻는다. */
+function syncSetFromPid(){
+  var sel=$('s_pid_sel'), setEl=$('s_set'); if(!sel||!setEl) return;
+  var w='';
+  if(sel.value==='__manual__'){ w=normWard($('s_pid_ward')&&$('s_pid_ward').value); }
+  else if(sel.value){ w=normWard(sel.value.split('-')[1]); }
+  if(w) setEl.value=w;
+}
+
 /* [D23] 오류 시 포커스는 '지금 보이는' 컨트롤로 — #s_pid 는 hidden 이라 focus 가 먹지 않는다. */
 function focusPid(){
   var sel=$('s_pid_sel');
@@ -888,8 +897,12 @@ function bind(){
   $('memo').addEventListener('input',memoWarn);
   /* [D23] 목록 선택 · 3자리 입력 · 병동 변경 → 모두 #s_pid 를 다시 계산한다.
      [D21] 대문자 고정은 여기서 불필요해졌다 — 목록 값은 정본이고, 직접입력은 숫자뿐이다. */
-  if($('s_pid_sel')) $('s_pid_sel').addEventListener('change',pidMode);
-  if($('s_pid_ward')) $('s_pid_ward').addEventListener('change',pidMode);
+  /* [D27] 익명ID 쪽을 건드릴 때만 set_assign 을 따라오게 한다. */
+  if($('s_pid_sel')) $('s_pid_sel').addEventListener('change',function(){
+    /* 직접입력으로 막 전환했다면 병동 초기값을 먼저 잡아야 동기화가 옳은 값을 쓴다. */
+    pidMode(); syncSetFromPid();
+  });
+  if($('s_pid_ward')) $('s_pid_ward').addEventListener('change',function(){ pidMode(); syncSetFromPid(); });
   if($('s_pid_num')) $('s_pid_num').addEventListener('input',function(){
     var v=this.value.replace(/\D/g,'').slice(0,3);        // 숫자 외 입력은 즉시 버린다
     if(v!==this.value) this.value=v;
