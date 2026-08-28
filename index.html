@@ -345,8 +345,16 @@
           <option value="OBS-10">OBS-10</option>
         </select>
         <p class="hint">실명·이니셜은 넣지 않습니다. <b>OBS-NN ↔ 실명</b> 대응은 위임 로그(delegation log)에 두고, 연결로그와 같은 등급으로 보관합니다.</p>
-        <label class="f">기본 병동/세트</label>
-        <input class="t" id="cfg_set" placeholder="예: 16E-A" maxlength="16" spellcheck="false" autocomplete="off">
+        <label class="f">기본 병동 (set_assign)</label>
+        <!-- [D24] v1.18 — 자유입력이었다. 시작화면 #s_set 은 16E/15E 만 있는 select 라
+             '16E-A' 같은 값을 넣어 두면 대입이 매칭되지 않아 시작화면 병동칸이 조용히
+             비었다. 두 곳의 선택지를 같게 맞춘다. -->
+        <select class="t" id="cfg_set">
+          <option value="">병동 선택</option>
+          <option value="16E">16E</option>
+          <option value="15E">15E</option>
+        </select>
+        <p class="senshint">여기서 고른 병동이 <b>새 세션의 기본값</b>이 됩니다. 세션마다 시작화면에서 바꿀 수 있습니다.</p>
         <label class="f">사전배정 익명ID 목록 (㉠ 연결로그)</label>
         <textarea class="t" id="cfg_roster" rows="4" spellcheck="false" autocomplete="off"
           placeholder="P-16E-001&#10;P-16E-002&#10;… 한 줄에 하나 (쉼표·공백 구분도 됩니다)"></textarea>
@@ -371,7 +379,7 @@
 
   </div>
   <!-- [D20] 버전 표기는 app.js 의 APP_VERSION 에서 주입된다(정적 텍스트는 스크립트 미실행 시 폴백) -->
-  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.17</span> (PWA) · <span id="verMode">—</span></div>
+  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.18</span> (PWA) · <span id="verMode">—</span></div>
 </div>
 
 <div class="toast" id="toast">

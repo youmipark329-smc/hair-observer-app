@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.17';
+var APP_VERSION='1.18';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -37,6 +37,20 @@ function transCode(from,to){ return from+'→'+to; }
 var PID_RE=/^P-(16E|15E)-\d{3}$/;
 /* [D21] 관찰자 로스터. 실명·이니셜은 넣지 않는다(직원 준식별자이고 배포본 IndexedDB 에 남는다).
    OBS-NN ↔ 실명 대응은 위임 로그(ICH E6 §4.1.5)에 둔다. */
+/* [D24] 병동은 16E/15E 뿐이다. 구형 자유입력('16E-A' 등)이 CFG 에 남아 있으면
+   앞 3글자에서 병동을 건져내고, 그것도 아니면 비운다. 관찰자 ID 와 달리
+   '(구형 입력)' 옵션으로 살리지 않는다 — 살리면 CRC 가 존재하지 않는 병동을
+   고를 수 있게 되고 그 값이 set_assign 으로 CSV 에 들어간다. */
+var WARDS=['16E','15E'];
+function normWard(v){
+  v=String(v||'').trim().toUpperCase();
+  if(WARDS.indexOf(v)>=0) return v;
+  var head=v.slice(0,3);
+  return WARDS.indexOf(head)>=0?head:'';
+}
+/* select 에 병동을 안전하게 대입한다(유효하지 않으면 '병동 선택'으로 남긴다). */
+function setWard(id,val){ var el=$(id); if(el) el.value=normWard(val); }
+
 function setObsSel(id,val){
   var el=$(id); if(!el) return;
   val=(val||'').trim();
@@ -203,7 +217,9 @@ function idbClear(store){ return new Promise(function(res,rej){ var tx=DB.transa
 /* ───────── 설정 ───────── */
 var CFG={endpoint:'',obs:'',set:'',theme:'system',roster:[]};
 function applyTheme(){ var t=CFG.theme; if(t==='system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme',t); }
-function loadCfg(){ return idbGet('meta','cfg').then(function(v){ if(v&&v.val) CFG=Object.assign(CFG,v.val); Clock.endpoint=CFG.endpoint||''; applyTheme(); }); }
+function loadCfg(){ return idbGet('meta','cfg').then(function(v){ if(v&&v.val) CFG=Object.assign(CFG,v.val);
+  CFG.set=normWard(CFG.set);                              // [D24] 구형 자유입력 값을 정리한다
+  Clock.endpoint=CFG.endpoint||''; applyTheme(); }); }
 function saveCfg(){ return idbPut('meta',{k:'cfg',val:CFG}); }
 
 /* ───────── 세션 상태 ───────── */
@@ -696,7 +712,7 @@ function startSession(){
   $('s_pid').value=pid;                             // [D21] 정규화 결과를 화면에도 되돌려 준다
   /* [D21] 익명ID 안의 병동과 set_assign 을 대조한다. 다르면 전동(轉棟)일 수 있으므로
      막지 않고 확인만 받는다. 분석은 set_assign 을 쓰고 익명ID를 파싱하지 않는다. */
-  var set=($('s_set').value||'').trim();
+  var set=normWard($('s_set').value);                 // [D24] 16E/15E 외 값은 미선택으로 본다
   var wardInPid=pid.split('-')[1];
   if(!set){ set=wardInPid; if($('s_set')) $('s_set').value=set; }
   else if(set!==wardInPid){
@@ -812,13 +828,13 @@ function resumeSession(sess){
 
 /* ───────── 설정 화면 ───────── */
 function openSettings(){
-  $('cfg_time').value=CFG.endpoint||''; setObsSel('cfg_obs',CFG.obs); $('cfg_set').value=CFG.set||''; $('cfg_theme').value=CFG.theme||'system';
+  $('cfg_time').value=CFG.endpoint||''; setObsSel('cfg_obs',CFG.obs); setWard('cfg_set',CFG.set); $('cfg_theme').value=CFG.theme||'system';
   $('cfg_roster').value=(CFG.roster||[]).join('\n');       // [D23]
   paintSync(); show('settingsScreen');
 }
 function commitCfg(){
   CFG.endpoint=($('cfg_time').value||'').trim(); CFG.obs=($('cfg_obs').value||'').trim();
-  CFG.set=($('cfg_set').value||'').trim(); CFG.theme=$('cfg_theme').value;
+  CFG.set=normWard($('cfg_set').value); CFG.theme=$('cfg_theme').value;
   /* [D23] 형식이 맞는 줄만 남긴다. 몇 건이 버려졌는지 반드시 알린다 —
      조용히 버리면 배정된 환자가 목록에 없는 이유를 아무도 모른다. */
   var rawLines=String($('cfg_roster').value||'').split(/[\s,;]+/).filter(function(x){return x.trim();});
@@ -830,7 +846,7 @@ function commitCfg(){
   // [D4] 설정 저장이 실패해도 화면은 닫아 주되(입력값은 메모리에 반영됨) 실패는 배너로 알린다
   saveCfg().catch(function(e){ saveFail(e); }).then(function(){ return Clock.sync(); }).then(backFromSettings);
 }
-function backFromSettings(){ if(S&&!S.ended){ show('codeScreen'); render(); } else { setObsSel('s_obs',CFG.obs); $('s_set').value=CFG.set||''; show('startScreen'); refreshList(); } }
+function backFromSettings(){ if(S&&!S.ended){ show('codeScreen'); render(); } else { setObsSel('s_obs',CFG.obs); setWard('s_set',CFG.set); pidMode(); show('startScreen'); refreshList(); } }
 
 /* ───────── 이벤트 바인딩 ───────── */
 function bind(){
@@ -857,7 +873,7 @@ function bind(){
   $('saveCsv').addEventListener('click',exportCurrent);
   /* [D4] 배너 안의 탈출구 — 저장 실패로 요약화면에 못 가도 여기서 메모리 그대로 내보낸다. */
   if($('bannerCsv')) $('bannerCsv').addEventListener('click',exportCurrent);
-  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_pid_sel').value=''; $('s_pid_num').value=''; $('s_serial').value=''; $('memo').value=''; memoWarn(); setObsSel('s_obs',CFG.obs); if($('s_set'))$('s_set').value=CFG.set||''; if($('s_start'))$('s_start').value='LIE'; if($('s_dual'))$('s_dual').value='0'; show('startScreen'); refreshList(); });
+  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_pid_sel').value=''; $('s_pid_num').value=''; $('s_serial').value=''; $('memo').value=''; memoWarn(); setObsSel('s_obs',CFG.obs); setWard('s_set',CFG.set); if($('s_start'))$('s_start').value='LIE'; if($('s_dual'))$('s_dual').value='0'; show('startScreen'); refreshList(); });
   /* [D22] memo 는 CSV note 로 직행하는 유일한 자유텍스트다. 등록번호·연락처가 흘러드는 것을
      막되, 코딩 흐름은 끊지 않는다 — 모달이 아니라 입력칸 경고 표시로만 알린다
      (전이 탭 시점에 모달을 띄우면 시각이 critical 한 순간에 CRC 를 붙잡게 된다). */
@@ -914,7 +930,7 @@ function boot(){
   idbOpen().then(loadCfg).then(function(){
     buildButtons(); bind();
     $('clk').textContent=clock(Clock.now());
-    setObsSel('s_obs',CFG.obs); if($('s_set')) $('s_set').value=CFG.set||'';
+    setObsSel('s_obs',CFG.obs); setWard('s_set',CFG.set);
     return refreshList();
   }).then(function(){
     return Clock.sync();
