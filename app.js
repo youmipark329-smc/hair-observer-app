@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.21';
+var APP_VERSION='1.22';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -691,10 +691,12 @@ function pidMode(){
      불리므로, 여기서 맞추면 CRC 가 전동(轉棟) 때문에 set_assign 만 바꾼 것을 **즉시
      되돌려 버린다**(v1.19~v1.20 실측). 동기화는 익명ID 쪽을 건드린 순간에만 한다
      → syncSetFromPid(). */
-  var v=pidEl.value;
-  if($('s_pid_echo')) $('s_pid_echo').innerHTML=v
-    ? '이 세션의 <b>patient_id = '+v+'</b> 로 저장됩니다. ㉠ 연결로그의 값과 같은지 확인하세요.'
-    : '㉠ 연결로그에 <b>사전배정된 익명ID</b> 만 씁니다. 목록은 <b>설정</b>에서 붙여넣어 갱신합니다. 씨어스 <b>measurement_code</b> 는 여기에 넣지 않습니다.';
+  /* [D28] 값이 있을 때만 확정 ID 를 보여준다. 없을 때는 칸 자체를 숨겨 여백도 남기지 않는다. */
+  var v=pidEl.value, echo=$('s_pid_echo');
+  if(echo){
+    echo.innerHTML = v ? ('→ <b>'+v+'</b>') : '';
+    echo.classList.toggle('hidden',!v);
+  }
 }
 /* [D27] 익명ID 의 병동을 set_assign 에 반영한다. **익명ID 쪽을 고른 순간에만** 부른다
    (목록에서 ID 선택 · 직접입력의 병동 변경). 그 뒤 CRC 가 set_assign 만 따로 바꾸면

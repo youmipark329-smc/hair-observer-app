@@ -207,7 +207,8 @@
       </div>
       <div class="card">
         <h2>새 관찰 세션 시작</h2>
-        <p class="lead">환자 <b>익명 ID</b> 만 입력합니다. 실명·등록번호·주민번호 등 개인정보는 절대 입력하지 마세요.</p>
+        <!-- [D28] v1.22 — 개인정보 경고문 제거. 시작화면의 자유 입력칸은 패치 시리얼 하나뿐이고
+             나머지는 전부 드롭다운/숫자라 설계가 이미 PII 입력을 막는다(v1.19~). -->
         <label class="f">관찰자 ID (observer_id)</label>
         <select class="t" id="s_obs">
           <option value="">관찰자 선택</option>
@@ -244,10 +245,10 @@
                  placeholder="001" spellcheck="false" autocomplete="off">
         </div>
         <input type="hidden" id="s_pid">
-        <p class="senshint" id="s_pid_echo">㉠ 연결로그에 <b>사전배정된 익명ID</b> 만 씁니다. 목록은 <b>설정</b>에서 붙여넣어 갱신합니다. 씨어스 <b>measurement_code</b> 는 관찰 시점에 아직 발급되지 않으므로 여기에 넣지 않습니다.</p>
+        <!-- [D28] 값이 정해졌을 때만 '확정 ID' 를 보여준다(조인키 오타를 눈으로 잡는 장치). -->
+        <p class="senshint hidden" id="s_pid_echo"></p>
         <label class="f">패치 시리얼 (device_serial · 등록연계 ★)</label>
         <input class="t" id="s_serial" placeholder="예: A030649 (패치 표면 표기 그대로)" maxlength="32" spellcheck="false" autocomplete="off">
-        <p class="senshint">패치 표면의 <b>영문1+숫자6</b>(예 A030649)을 그대로. 이 값이 서버 <b>serial_ecg_1</b>과 같아야 연계 이중검증이 됩니다.</p>
         <div class="two">
           <div><label class="f">병동 (set_assign)</label>
             <select class="t" id="s_set">
@@ -270,9 +271,8 @@
           <option value="0">아니오 — 단독 관찰</option>
           <option value="1">예 — 같은 환자를 두 관찰자가 동시에 코딩(κ)</option>
         </select>
-        <p class="senshint">두 관찰자가 <b>같은 환자·같은 시간</b>을 동시에 코딩하는 계획된 신뢰도 블록일 때만 [예]. 근무 <b>교대</b>는 [아니오] 입니다 — 교대는 이어붙이고 이중코딩은 대조하므로, 분석에서 정반대로 다룹니다.</p>
         <button class="big" id="startBtn" type="button">▶ 관찰 시작</button>
-        <p class="hint">등록 일시는 <b>관찰 시작</b>을 누른 시각으로 자동 저장됩니다 · 시각동기: <span id="startSync">확인 중…</span></p>
+        <p class="hint">시각동기: <span id="startSync">확인 중…</span></p>
       </div>
       <div class="card" id="recentCard">
         <h2>지난 세션 <span style="font-weight:700;color:var(--muted);font-size:12px" id="sessCount"></span></h2>
@@ -388,7 +388,7 @@
 
   </div>
   <!-- [D20] 버전 표기는 app.js 의 APP_VERSION 에서 주입된다(정적 텍스트는 스크립트 미실행 시 폴백) -->
-  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.21</span> (PWA) · <span id="verMode">—</span></div>
+  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.22</span> (PWA) · <span id="verMode">—</span></div>
 </div>
 
 <div class="toast" id="toast">
