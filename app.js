@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.15';
+var APP_VERSION='1.16';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -279,6 +279,15 @@ function koState(c){for(var i=0;i<STATES.length;i++)if(STATES[i].c===c)return ST
 function koCtx(c){for(var i=0;i<CTX.length;i++)if(CTX[i].c===c)return CTX[i].k;return c;}
 function fmtDur(s){s=Math.max(0,Math.round(s));if(s<60)return s+'s';var m=Math.floor(s/60);return m+'m '+pad(s%60)+'s';}
 function memoVal(){return($('memo').value||'').trim();}
+/* [D22] 6자리 이상 연속 숫자(등록번호) 또는 휴대전화 형태면 입력칸을 붉게 표시한다.
+   저장을 막지는 않는다 — 막으면 CRC 가 코딩을 멈추게 되고, 판단은 사람이 해야 한다. */
+var PII_RE=/\d{6,}|01[016-9][-\s]?\d{3,4}[-\s]?\d{4}/;
+function memoWarn(){
+  var el=$('memo'); if(!el) return;
+  var bad=PII_RE.test(el.value||'');
+  el.classList.toggle('pii',bad);
+  el.title=bad?'숫자 6자리 이상 — 환자번호·연락처가 아닌지 확인하세요(개인정보 입력 금지)':'';
+}
 var LOCKED=function(){return S&&(S.ctx==='off_view'||S.ctx==='off_ward');};
 
 /* ───────── 버튼 빌드 ───────── */
@@ -506,6 +515,10 @@ function endSession(){
     S.ctxBouts.push({rid:S.ctxRid,ctx:S.ctx,start:S.ctxStart,end:ts,dur:Math.max(0,(ts-S.ctxStart)/1000),
       offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});                       // [D1]
     S.ended=true; S.endTs=ts;
+    /* [D22] note 를 마지막 bout 에 실었으면 입력칸을 비운다. 종전에는 남아 있다가
+       [세션 마감 · 새 세션] → 다음 환자의 첫 전이에서 그 문장이 다른 patient_id 의
+       note 로 다시 실렸다(오라벨 + PII 이월 경로). */
+    $('memo').value=''; memoWarn();
   }
   /* [D4] 저장이 확인된 뒤에만 요약화면으로 넘어간다. 실패하면 배너를 띄우고 코딩화면에 머문다
      — 종료 버튼을 다시 누르면 (행 중복 없이) 저장만 재시도한다. */
@@ -569,7 +582,24 @@ function refreshList(){
       open.addEventListener('click',function(){ if(s.ended){ download('HAIR_'+s.pid+'_'+s.id+'.csv', matrixToCsv(sessRows(s,true,s.endTs))); } else { resumeSession(s); } });
       li.appendChild(open); ul.appendChild(li);
     });
+    openGate(list);                                       // [D22] 미종료 세션 게이트 갱신
   });
+}
+
+/* [D22] 미종료 세션(ended=false)이 있으면 startScreen 맨 위 카드로 올리고 [관찰 시작] 을 잠근다.
+   목록의 '이어하기' 는 스크롤 아래(360x740 갤럭시에서는 카드 자체가 fold 밖)라 발견되지 않는다.
+   [다른 환자로 새로 시작] 은 명시적 탈출구 — 눌러야만 잠금이 풀린다. */
+function openGate(list){
+  var card=$('openCard'); if(!card) return;
+  var open=null;
+  for(var i=0;i<list.length;i++){ if(!list[i].ended){ open=list[i]; break; } }
+  if(!open){ card.classList.add('hidden'); $('startBtn').disabled=false; return; }
+  $('openMeta').textContent=open.pid+' · '+open.obs+(open.set?(' · '+open.set):'')+
+    ' · '+dateStr(open.createdDevice)+' '+clock(open.createdDevice)+' 시작';
+  card.classList.remove('hidden');
+  $('startBtn').disabled=true;
+  $('openResume').onclick=function(){ resumeSession(open); };
+  $('openIgnore').onclick=function(){ card.classList.add('hidden'); $('startBtn').disabled=false; };
 }
 function esc(t){return String(t==null?'':t).replace(/[<>&]/g,function(c){return{'<':'&lt;','>':'&gt;','&':'&amp;'}[c];});}
 
@@ -743,7 +773,11 @@ function bind(){
   $('saveCsv').addEventListener('click',exportCurrent);
   /* [D4] 배너 안의 탈출구 — 저장 실패로 요약화면에 못 가도 여기서 메모리 그대로 내보낸다. */
   if($('bannerCsv')) $('bannerCsv').addEventListener('click',exportCurrent);
-  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_serial').value=''; setObsSel('s_obs',CFG.obs); if($('s_set'))$('s_set').value=CFG.set||''; if($('s_start'))$('s_start').value='LIE'; if($('s_dual'))$('s_dual').value='0'; show('startScreen'); refreshList(); });
+  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_serial').value=''; $('memo').value=''; memoWarn(); setObsSel('s_obs',CFG.obs); if($('s_set'))$('s_set').value=CFG.set||''; if($('s_start'))$('s_start').value='LIE'; if($('s_dual'))$('s_dual').value='0'; show('startScreen'); refreshList(); });
+  /* [D22] memo 는 CSV note 로 직행하는 유일한 자유텍스트다. 등록번호·연락처가 흘러드는 것을
+     막되, 코딩 흐름은 끊지 않는다 — 모달이 아니라 입력칸 경고 표시로만 알린다
+     (전이 탭 시점에 모달을 띄우면 시각이 critical 한 순간에 CRC 를 붙잡게 된다). */
+  $('memo').addEventListener('input',memoWarn);
   /* [D21] 익명ID 는 입력 즉시 대문자로 고정한다(p-16e-001 을 조용히 통과시키지 않는다). */
   if($('s_pid')) $('s_pid').addEventListener('input',function(){
     var p=this.selectionStart, v=this.value.toUpperCase();
