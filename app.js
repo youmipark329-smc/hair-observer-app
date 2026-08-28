@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.24';
+var APP_VERSION='1.25';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -344,6 +344,10 @@ function tapState(c){
   S.cur=c; S.boutStart=ts; S.boutStartDev=dev;
   S.boutRid='r'+(++S.seq); S.boutRid2='r'+(++S.seq);   // [D3][D9] 전이행·상태행 몫을 함께 부여
   S.boutEnter=S.log[S.log.length-1].code; S.boutIsBed=isBed; S.reminded=false;
+  /* [D31] 불확실은 **방금 닫힌 구간 한 건**에만 실린다. 다음 동작이 보여서 기록하는
+     순간 이미 해소된 것이므로 여기서 끈다. 종전에는 끄는 경로가 없어 켜 두고 잊으면
+     이후 전 행이 uncertain=1 로 나갔다. 여전히 애매하면 다시 누르면 된다. */
+  S.unc=false;
   if(nt)$('memo').value=''; persist(); render();
 }
 function tapMotion(m,b){
@@ -353,6 +357,7 @@ function tapMotion(m,b){
     offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});   // [D8] 스냅샷
   S.log.push({t:clock(ts),kind:'motion',code:'motion:'+m.c+(ibm?' (in_bed_move=1)':''),bed:false});
   b.classList.add('on'); setTimeout(function(){b.classList.remove('on');},420);
+  S.unc=false;                                        // [D31] 여기서도 한 건만 싣고 끈다
   if(nt)$('memo').value=''; persist(); render();
 }
 function tapContext(x){
@@ -384,8 +389,10 @@ function doUndo(){
   var e=S.log.pop(); S.undoCount++;
   /* [D3] S.seq 는 되돌리지 않는다. 되돌리면 이미 export 된 record_id 와 충돌하므로,
      번호를 소비된 채로 두어 영구 유일성을 지킨다(중간에 번호 구멍이 생겨도 무방). */
-  if(e.kind==='transition'){ var b=S.bouts.pop(); if(b){S.cur=b.state;S.boutStart=b.start;S.boutStartDev=b.startDev;S.boutEnter=b.enter;S.boutIsBed=b.isBed;S.boutRid=b.rid;S.boutRid2=b.rid2;} }
-  else if(e.kind==='motion'){ S.motions.pop(); }
+  /* [D31] 되돌린 행이 싣고 간 불확실을 되살린다 — 안 하면 실행취소 뒤 버튼 표시가
+     실제 기록 상태와 어긋난다(꺼져 보이는데 되살아난 구간은 여전히 애매한 구간이다). */
+  if(e.kind==='transition'){ var b=S.bouts.pop(); if(b){S.cur=b.state;S.boutStart=b.start;S.boutStartDev=b.startDev;S.boutEnter=b.enter;S.boutIsBed=b.isBed;S.boutRid=b.rid;S.boutRid2=b.rid2;S.unc=!!b.unc;} }
+  else if(e.kind==='motion'){ var mo=S.motions.pop(); if(mo) S.unc=!!mo.unc; }
   else if(e.kind==='marker'){ S.markers.pop(); }
   else if(e.kind==='context'){ var cb=S.ctxBouts.pop(); if(cb){S.ctx=cb.ctx;S.ctxStart=cb.start;S.ctxRid=cb.rid;} }
   else if(e.kind==='sensor'){ S.sensor=e.prev; }   // [D8] 센서 토글도 undo 대상
