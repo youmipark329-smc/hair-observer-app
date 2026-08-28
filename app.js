@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.22';
+var APP_VERSION='1.23';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -51,15 +51,23 @@ function normWard(v){
 /* select 에 병동을 안전하게 대입한다(유효하지 않으면 '병동 선택'으로 남긴다). */
 function setWard(id,val){ var el=$(id); if(el) el.value=normWard(val); }
 
+/* [D29] 관찰자 ID 정본 = 위임 로그의 OBS-01~OBS-10. 익명ID 와 달리 v1.22 까지
+   **대조가 없어서** 구버전 자유입력 값(예 '1')이 그대로 observer_id 로 기록될 수 있었다.
+   그러면 위임 로그(OBS-NN ↔ 실명) 대응이 끊기고, κ 는 observer_id 로 두 사람을
+   가르므로 이중코딩 쌍도 어긋난다. */
+var OBS_RE=/^OBS-(0[1-9]|10)$/;
+
 function setObsSel(id,val){
   var el=$(id); if(!el) return;
   val=(val||'').trim();
   /* 자유입력 시절(≤v1.14) CFG 에 로스터 밖 값이 남아 있으면 select 가 조용히 빈 값이 되고
-     시작이 막힌다. 남은 값을 옵션으로 살려 두고 선택 상태로 만든다. */
+     시작이 막힌다. 남은 값을 옵션으로 살려 두고 선택 상태로 만든다.
+     [D29] 다만 라벨로 **쓸 수 없는 값**임을 드러낸다 — 보이되 통과하지는 못한다. */
   if(val){
     var has=false, i;
     for(i=0;i<el.options.length;i++){ if(el.options[i].value===val){ has=true; break; } }
-    if(!has){ var o=document.createElement('option'); o.value=val; o.textContent=val+' (구형 입력)'; el.appendChild(o); }
+    if(!has){ var o=document.createElement('option'); o.value=val;
+      o.textContent=val+' (구버전 값 · 사용 불가)'; el.appendChild(o); }
   }
   el.value=val;
 }
@@ -719,6 +727,14 @@ function startSession(){
   var obs=($('s_obs').value||'').trim();
   var pid=($('s_pid').value||'').trim().toUpperCase();
   if(!obs){ alert('관찰자 ID를 선택하세요.'); $('s_obs').focus(); return; }
+  /* [D29] 로스터 밖 값(구버전 자유입력 잔존분)으로는 세션을 시작할 수 없다. */
+  if(!OBS_RE.test(obs)){
+    $('s_obs').focus();
+    alert('관찰자 ID 「'+obs+'」 는 구버전에 저장된 값이라 쓸 수 없습니다.\n\n'+
+          'OBS-01 ~ OBS-10 중에서 다시 고르세요.\n'+
+          '※ [설정 > 기본 관찰자 ID] 도 함께 바꾸시면 다음부터 뜨지 않습니다.');
+    return;
+  }
   if(!pid){ alert('환자 익명 ID(patient_id)를 고르거나 입력하세요.'); focusPid(); return; }
   if(!PID_RE.test(pid)){
     $('s_pid').value=pid; focusPid();
@@ -852,7 +868,16 @@ function openSettings(){
   paintSync(); show('settingsScreen');
 }
 function commitCfg(){
-  CFG.endpoint=($('cfg_time').value||'').trim(); CFG.obs=($('cfg_obs').value||'').trim();
+  CFG.endpoint=($('cfg_time').value||'').trim();
+  /* [D29] 기본 관찰자 ID 에 구버전 값이 남아 있으면 **지운다.** 그대로 저장하면
+     매번 되살아나 시작화면 기본값으로 다시 뜬다(실기기에서 '1' 이 그렇게 남아 있었다). */
+  var obsCfg=($('cfg_obs').value||'').trim();
+  if(obsCfg && !OBS_RE.test(obsCfg)){
+    alert('기본 관찰자 ID 「'+obsCfg+'」 는 구버전에 저장된 값이라 지웠습니다.\n\n'+
+          'OBS-01 ~ OBS-10 중에서 다시 고르세요.');
+    obsCfg='';
+  }
+  CFG.obs=obsCfg;
   CFG.set=normWard($('cfg_set').value); CFG.theme=$('cfg_theme').value;
   /* [D23] 형식이 맞는 줄만 남긴다. 몇 건이 버려졌는지 반드시 알린다 —
      조용히 버리면 배정된 환자가 목록에 없는 이유를 아무도 모른다. */
