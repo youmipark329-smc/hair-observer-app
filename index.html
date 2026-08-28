@@ -65,9 +65,6 @@
     font-weight:800;cursor:pointer;font-family:inherit;margin-top:14px}
   .big.ghost{background:transparent;color:var(--accent);border:1.5px solid var(--accent)}
   .big.alert{background:var(--alert)}
-  .markbox{display:flex;align-items:center;gap:10px;border:1.5px dashed var(--accent-2);background:var(--soft);border-radius:12px;padding:9px 11px}
-  .markbox .ml{flex:1;font-size:12px;font-weight:800;color:var(--accent);line-height:1.25}
-  .markbox .ml small{display:block;font-size:10.5px;font-weight:600;color:var(--muted);margin-top:2px}
   .markbtn{border:1.5px solid var(--accent);background:var(--panel);color:var(--accent);border-radius:10px;padding:9px 13px;font-size:13.5px;font-weight:800;font-family:inherit;cursor:pointer;white-space:nowrap}
   .markbtn:active{transform:scale(.97)}
   .markbtn.flash{background:var(--accent);color:#fff}
@@ -106,6 +103,15 @@
   .chip.ctx.onnone{background:rgba(21,154,69,.16);border-color:var(--good);color:var(--good);font-weight:800}
   .chip.disabled{opacity:.36;pointer-events:none}
   .miscrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  /* [D30] 관찰자 판단 소구역 구분선 */
+  .subdiv{border-top:1px solid var(--line);margin:14px 0 10px}
+  /* [D30] 패치 장비 상자 — 환자 행동 영역과 시각적으로 분리한다(점선 = 특수 조작) */
+  .devbox{border:1.5px dashed var(--accent-2);background:var(--soft);border-radius:12px;padding:10px 11px}
+  .devlbl{font-size:12px;font-weight:800;color:var(--accent);margin:0 0 9px;display:flex;gap:6px;align-items:center}
+  .devrow{display:flex;align-items:center;gap:10px}
+  .devrow+.devrow{margin-top:9px;padding-top:9px;border-top:1px dashed var(--line)}
+  .devrow .dl{flex:1;min-width:0;font-size:10.5px;color:var(--muted);line-height:1.4}
+  .devrow .toggle,.devrow .markbtn{flex:0 0 auto}
   .toggle{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:8px 13px;font-size:13.5px;
     cursor:pointer;color:var(--ink);font-family:inherit}
   .toggle.on{background:rgba(176,0,32,.12);border-color:var(--alert);color:var(--alert);font-weight:800}
@@ -293,20 +299,31 @@
       <div class="card">
         <div class="rowlbl">🩺 움직임상세 <span class="tag">LIE/SIT/STD · 복수</span></div>
         <div class="chips" id="motions"></div>
-        <div class="rowlbl" style="margin-top:12px">맥락 <span class="tag">자세와 독립</span></div>
+        <div class="rowlbl" style="margin-top:12px">맥락 <span class="tag">한 번에 하나 · 자세와 독립</span></div>
         <div class="chips" id="contexts"></div>
         <div id="ctxbanner" class="banner" style="margin-top:10px"></div>
         <div id="lockbanner" class="banner" style="margin-top:8px"></div>
-        <div class="miscrow" style="margin-top:12px">
+        <!-- [D30] v1.24 — 관찰자 판단(불확실·메모)을 맥락 칩과 분리한다. -->
+        <div class="subdiv"></div>
+        <div class="rowlbl">✎ 기록 <span class="tag">관찰자 판단</span></div>
+        <div class="miscrow">
           <button class="toggle" id="unc" type="button">⚠ 불확실</button>
-          <button class="toggle" id="sensorbtn" type="button">센서 <b id="sensor">on</b></button>
-          <input class="memo" id="memo" placeholder="메모 ✎ (불확실 시 필수)" autocomplete="off">
+          <input class="memo" id="memo" placeholder="메모 (불확실 시 필수)" autocomplete="off">
         </div>
-        <p class="senshint">센서: 패치가 떨어지거나 처치로 뗀 걸 <b>봤을 때만 off</b> — 정확한 상태는 서버(LEAD_OFF)가 판정합니다.</p>
       </div>
-      <div class="markbox">
-        <div class="ml">⏱ 시각정합 마커 (#8)<small>패치 두드릴 때만 함께 탭</small></div>
-        <button class="markbtn" id="markerBtn" type="button">동기마커<span id="mcount" class="mcount">0</span></button>
+      <!-- [D30] 센서는 환자 행동이 아니라 **패치 장비**에 대한 기록이다. 종전에는 맥락 칩
+           바로 아랫줄에 같은 초록 알약으로 있어 맥락의 6번째 선택지로 보였다.
+           동기마커와 함께 별도 상자로 묶는다 — 둘 다 패치에 대한 조작이다. -->
+      <div class="devbox">
+        <div class="devlbl">📟 패치 장비 <span class="tag">환자 행동 아님</span></div>
+        <div class="devrow">
+          <button class="toggle" id="sensorbtn" type="button">센서 <b id="sensor">on</b></button>
+          <span class="dl">떨어지거나 처치로 뗀 걸 <b>봤을 때만 off</b></span>
+        </div>
+        <div class="devrow">
+          <button class="markbtn" id="markerBtn" type="button">⏱ 동기마커<span id="mcount" class="mcount">0</span></button>
+          <span class="dl">패치를 <b>두드릴 때만</b> 함께 탭</span>
+        </div>
       </div>
 
       <div class="card log">
@@ -388,7 +405,7 @@
 
   </div>
   <!-- [D20] 버전 표기는 app.js 의 APP_VERSION 에서 주입된다(정적 텍스트는 스크립트 미실행 시 폴백) -->
-  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.23</span> (PWA) · <span id="verMode">—</span></div>
+  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.24</span> (PWA) · <span id="verMode">—</span></div>
 </div>
 
 <div class="toast" id="toast">
