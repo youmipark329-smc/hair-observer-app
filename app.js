@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.19';
+var APP_VERSION='1.20';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -644,7 +644,7 @@ function pad3(n){ n=String(n).replace(/\D/g,'').slice(0,3); while(n.length<3) n=
 /* 목록 select 를 다시 그린다. usedList 가 오면 이미 관찰한 ID 에 표시를 단다
    — 같은 환자를 두 번 여는 실수를 고르는 순간 알아채게 한다. */
 function fillPidRoster(usedList){
-  var sel=$('s_pid_sel'); if(!sel) return;
+  var sel=$('s_pid_sel'); if(!sel||!$('s_pid_manualbox')) return;   // [D26]
   var used={}, i;
   for(i=0;i<(usedList||[]).length;i++) used[String(usedList[i].pid||'').toUpperCase()]=1;
   var keep=sel.value;
@@ -670,27 +670,31 @@ function fillPidRoster(usedList){
 
 /* 선택 상태에 따라 화면을 바꾸고 #s_pid(값 운반자)를 채운다. */
 function pidMode(){
-  var sel=$('s_pid_sel'); if(!sel) return;
+  var sel=$('s_pid_sel'), box=$('s_pid_manualbox'), wardSel=$('s_pid_ward'),
+      numEl=$('s_pid_num'), pidEl=$('s_pid');
+  /* [D26] 엘리먼트가 하나라도 없으면 조용히 물러난다. 판본이 섞여 들어오면
+     여기서 예외가 나면서 boot 전체가 죽었다(실측) — 부팅을 죽이는 코드는 두지 않는다. */
+  if(!sel||!box||!wardSel||!numEl||!pidEl) return;
   var manual=(sel.value==='__manual__');
-  $('s_pid_manualbox').classList.toggle('hidden',!manual);
+  box.classList.toggle('hidden',!manual);
   if(manual){
     /* [D25] 병동은 이 줄의 드롭다운이 정본이다. 값이 없으면(첫 전환) 아래쪽
        set_assign / CFG 에서 한 번만 끌어와 초기값을 잡는다. */
-    var ward=normWard($('s_pid_ward').value);
-    if(!ward){ ward=normWard($('s_set').value)||normWard(CFG.set)||'16E'; $('s_pid_ward').value=ward; }
-    var num=($('s_pid_num').value||'').replace(/\D/g,'');
-    $('s_pid').value=num?('P-'+ward+'-'+pad3(num)):'';
+    var ward=normWard(wardSel.value);
+    if(!ward){ ward=normWard($('s_set')&&$('s_set').value)||normWard(CFG.set)||'16E'; wardSel.value=ward; }
+    var num=(numEl.value||'').replace(/\D/g,'');
+    pidEl.value=num?('P-'+ward+'-'+pad3(num)):'';
     /* 목록 선택과 같은 동작 — 고른 병동을 set_assign 에도 반영한다.
        전동(轉棟)이면 그 뒤에 set_assign 만 바꾸면 되고, startSession 의 대조가 잡아 준다. */
     if($('s_set') && normWard($('s_set').value)!==ward) $('s_set').value=ward;
   }else{
-    $('s_pid').value=sel.value||'';
+    pidEl.value=sel.value||'';
     /* 목록에서 고른 ID 는 병동을 이미 품고 있다 — set_assign 을 맞춰 두면
        startSession 의 병동 대조가 헛되이 confirm 을 띄우지 않는다. */
     if(sel.value){ var w=sel.value.split('-')[1]; if($('s_set')) $('s_set').value=w; }
   }
-  var v=$('s_pid').value;
-  $('s_pid_echo').innerHTML=v
+  var v=pidEl.value;
+  if($('s_pid_echo')) $('s_pid_echo').innerHTML=v
     ? '이 세션의 <b>patient_id = '+v+'</b> 로 저장됩니다. ㉠ 연결로그의 값과 같은지 확인하세요.'
     : '㉠ 연결로그에 <b>사전배정된 익명ID</b> 만 씁니다. 목록은 <b>설정</b>에서 붙여넣어 갱신합니다. 씨어스 <b>measurement_code</b> 는 여기에 넣지 않습니다.';
 }
@@ -925,10 +929,31 @@ function bind(){
 }
 
 /* ───────── 부트 ───────── */
+var SW_RELOADED=false;                                   // [D26] controllerchange 리로드 1회 제한
+/* [D26] 최초 설치 때도 controllerchange 는 한 번 뜬다(제어자가 없다가 생기는 순간).
+   그때 리로드하면 설치 직후 화면이 공연히 한 번 깜빡인다. **원래 제어자가 있었을 때만**
+   = 진짜 판본 교체일 때만 리로드한다. */
+var SW_HAD_CONTROLLER=!!(navigator.serviceWorker && navigator.serviceWorker.controller);
 function boot(){
   var mode=('serviceWorker' in navigator)?'설치형(오프라인)':'브라우저';
   $('verMode').textContent=mode;
+  /* [D26] index.html 의 정적 폴백을 **덮어쓰기 전에** 읽어 app.js 와 대조한다.
+     둘이 다르면 판본이 섞여 들어온 것이다(v1.16~v1.19 의 파일별 타임아웃이 만든 상황).
+     종전에는 덮어쓴 뒤라 화면이 새 버전을 표시해 **섞였다는 사실 자체가 보이지 않았다.** */
+  var htmlVer=($('verApp')?$('verApp').textContent:'').trim();
   if($('verApp')) $('verApp').textContent=APP_VERSION;   // [D20] 화면 표기도 상수에서 파생
+  if(htmlVer && htmlVer!==APP_VERSION){
+    try{
+      if(!sessionStorage.getItem('mixfix')){
+        sessionStorage.setItem('mixfix','1');
+        location.reload(); return;                       // 한 번만 다시 받아 본다
+      }
+    }catch(e){}
+    /* 두 번째에도 섞였다면 더 이상 리로드하지 않고 사람이 읽을 수 있게 알린다. */
+    alert('앱 판본이 섞여 들어왔습니다 (화면 '+htmlVer+' / 코드 '+APP_VERSION+').\n\n'+
+          '온라인 상태에서 앱을 완전히 닫았다가 다시 열어 주세요.\n'+
+          '관찰 기록은 폰에 그대로 남아 있습니다 — 지워지지 않습니다.');
+  }
   /* [D4] 축출(eviction) 방지 — 브라우저에 영구 저장소를 요청. 거부돼도 그대로 진행한다. */
   try{ if(navigator.storage&&navigator.storage.persist) navigator.storage.persist().catch(function(){}); }catch(e){}
   Clock.reAnchor();
@@ -939,9 +964,26 @@ function boot(){
     return refreshList();
   }).then(function(){
     return Clock.sync();
-  }).catch(function(e){ console.error('boot error',e); alert('초기화 오류: '+(e&&e.message||e)); });
-  // service worker 등록(있으면 오프라인)
-  if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js').catch(function(){}); }catch(e){} }
+  }).catch(function(e){ console.error('boot error',e);
+    alert('초기화 오류: '+(e&&e.message||e)+'\n\n'+
+          '온라인 상태에서 앱을 완전히 닫았다가 다시 열어 주세요.\n'+
+          '관찰 기록은 폰에 그대로 남아 있습니다 — 지워지지 않습니다.'); });
+  /* [D26] service worker 등록.
+     · updateViaCache:'none' — sw.js 자체를 HTTP 캐시에서 읽지 않는다. 이게 없으면
+       브라우저 휴리스틱 때문에 새 판 발견이 최대 24시간 늦을 수 있다.
+     · controllerchange — 새 SW 가 셸을 통째로 받아 활성화된 시점. **관찰 세션 중에는
+       절대 리로드하지 않는다**(침상 옆에서 화면이 날아가는 것이 갱신보다 나쁘다).
+       세션이 없을 때만 한 번 리로드해 새 판본을 통째로 적용한다. */
+  if('serviceWorker' in navigator){
+    try{
+      navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(function(){});
+      navigator.serviceWorker.addEventListener('controllerchange',function(){
+        if(SW_RELOADED || !SW_HAD_CONTROLLER) return;     // 최초 설치는 리로드하지 않는다
+        if(S && !S.ended) return;                        // 관찰 중 — 건드리지 않는다
+        SW_RELOADED=true; location.reload();
+      });
+    }catch(e){}
+  }
 }
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
 })();

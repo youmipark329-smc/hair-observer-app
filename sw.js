@@ -1,24 +1,26 @@
-/* HAIR 관찰코딩 · Service Worker · app v1.19 (2026-08-28)
-   [D20] CACHE 이름은 app.js 의 APP_VERSION 과 함께 올린다(v1.19 ↔ hair-observer-v22).
-   전략: 앱 셸(HTML/JS/매니페스트/아이콘)은 network-first — 온라인이면 항상 최신,
-   오프라인이면 캐시로 폴백. → 앱을 갱신·재배포하면 다음 접속 시 자동 반영(옛 버전 고착 방지).
-   관찰 데이터는 IndexedDB(캐시와 무관). 시각 엔드포인트 등 외부 API는 항상 네트워크.
+/* HAIR 관찰코딩 · Service Worker · app v1.20 (2026-08-28)
+   [D20] CACHE 이름은 app.js 의 APP_VERSION 과 함께 올린다(v1.20 ↔ hair-observer-v23).
 
-   [D22] v1.16 — network-first 에 NET_TIMEOUT 상한을 건다.
-   종전에는 fetch 프라미스가 끝날 때까지 respondWith 가 매달렸다. 와이파이를 끄면
-   fetch 가 즉시 reject 되어 문제가 없지만, **병동 와이파이에 붙어 있는데 그 망이
-   github.io 로 나가는 패킷을 조용히 버리는 경우**(폐쇄망 기본 DROP·캡티브 포털)
-   TCP/TLS 타임아웃까지 수십 초를 기다린다. 그 대상이 문서(index.html)라 앱 코드가
-   한 줄도 돌기 전이고, CRC 는 앱이 죽은 줄 알고 강제종료를 반복하게 된다.
-   Pages 는 설치 직후 꺼두므로 네트워크에서 얻을 이득이 0인데 대기 비용만 문다.
-   → 캐시 적중이 있으면 네트워크에 1.5초만 준다. 늦게 온 응답도 캐시에는 반영되므로
-     '다음 실행 시 최신' 이라는 network-first 의 목적은 그대로 유지된다. */
-var CACHE='hair-observer-v22';
-var NET_TIMEOUT=1500;
+   [D26] v1.20 — **cache-first(셸 원자성)**. v1.16~v1.19 의 network-first + 1.5초 상한을 걷어낸다.
+   왜 바꾸나: 상한이 **파일마다 따로** 판정되다 보니 index.html 은 캐시(옛 판),
+   app.js 는 네트워크(새 판)에서 오는 조합이 실제로 발생했다. 새 JS 가 옛 HTML 의
+   없는 엘리먼트를 만져 부팅이 통째로 죽었다.
+   지금 구조: 캐시는 install 의 addAll 로만 채워진다. addAll 은 **전부 성공해야 커밋**되므로
+   한 캐시에는 언제나 **정합한 셸 한 벌**만 들어 있다. 요청은 그 캐시에서만 답한다
+   → 판본이 섞일 수 없다.
+   갱신 경로: 브라우저가 sw.js 를 재검증(app.js 가 updateViaCache:'none' 로 등록) →
+   CACHE 이름이 바뀌었으면 새 SW 가 새 캐시를 통째로 받고 skipWaiting →
+   app.js 의 controllerchange 핸들러가 **세션 중이 아닐 때만** 리로드한다.
+   덤: 네트워크를 기다리는 구간이 아예 없다. 병동망이 패킷을 버려도 대기 0초다
+   (v1.16 이 1.5초로 줄인 것을 0으로 만든다).
+
+   관찰 데이터는 IndexedDB(캐시와 무관). 시각 엔드포인트 등 외부 API는 항상 네트워크. */
+var CACHE='hair-observer-v23';
 var SHELL=['./','./index.html','./app.js','./manifest.webmanifest',
   './icons/icon-192.png','./icons/icon-512.png','./icons/icon-maskable-512.png'];
 
 self.addEventListener('install',function(e){
+  // addAll 은 원자적이다 — 하나라도 실패하면 이 캐시는 만들어지지 않고 옛 SW 가 계속 산다.
   e.waitUntil(caches.open(CACHE).then(function(c){ return c.addAll(SHELL); }).then(function(){ return self.skipWaiting(); }));
 });
 self.addEventListener('activate',function(e){
@@ -31,34 +33,21 @@ self.addEventListener('fetch',function(e){
   if(req.method!=='GET'){ return; }
   var url=new URL(req.url);
   if(url.origin!==self.location.origin){ return; }   // 외부 API(시각 등)는 우회
-  // network-first(최신 우선) + 강한 캐시 폴백: 오프라인이든 서버 비정상(예: Pages off=404)이든 캐시된 앱으로 구동
-  // [D22] 단, 캐시 적중이 있으면 네트워크에 NET_TIMEOUT 만 준다(조용히 버리는 망에서 매달리지 않는다).
   e.respondWith(
     caches.match(req).then(function(hit){
-      // 네트워크 시도. 실패·비정상은 null 로 접어 race 를 단순하게 유지한다.
-      var net=fetch(req).then(function(res){
-        if(res && res.ok){                                // 정상 응답만 캐시·사용
+      if(hit) return hit;                            // [D26] 셸은 캐시에서만 — 대기 0초
+      // 셸에 없는 자원(있다면)만 네트워크로. 성공분은 담아 두되 셸 정합성과는 무관하다.
+      return fetch(req).then(function(res){
+        if(res && res.ok && res.type==='basic'){
           var copy=res.clone();
           caches.open(CACHE).then(function(c){ try{ c.put(req,copy); }catch(_){} });
-          return res;
         }
-        return null;                                      // 404 등 비정상 → 캐시로
-      }).catch(function(){ return null; });               // 완전 오프라인 → 캐시로
-
-      // 캐시가 없으면 기다릴 수밖에 없다(첫 설치·미캐시 자원).
-      if(!hit){
-        return net.then(function(res){
-          if(res) return res;
-          return req.mode==='navigate' ? caches.match('./index.html').then(function(h){
-            return h || Response.error();
-          }) : Response.error();
-        });
-      }
-
-      // 캐시가 있으면 상한을 건다. 늦게 도착한 응답도 위 then 에서 캐시에 들어가므로
-      // 다음 실행 때 최신본이 뜬다 — 갱신이 유실되는 게 아니라 한 번 미뤄질 뿐이다.
-      var timer=new Promise(function(r){ setTimeout(function(){ r(null); },NET_TIMEOUT); });
-      return Promise.race([net,timer]).then(function(res){ return res || hit; });
+        return res;
+      }).catch(function(){
+        return req.mode==='navigate'
+          ? caches.match('./index.html').then(function(x){ return x || Response.error(); })
+          : Response.error();
+      });
     })
   );
 });
