@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.16';
+var APP_VERSION='1.17';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -201,7 +201,7 @@ function idbDel(store,key){ return new Promise(function(res,rej){ var tx=DB.tran
 function idbClear(store){ return new Promise(function(res,rej){ var tx=DB.transaction(store,'readwrite'); tx.objectStore(store).clear(); tx.oncomplete=function(){res();}; tx.onerror=function(){rej(tx.error);}; }); }
 
 /* ───────── 설정 ───────── */
-var CFG={endpoint:'',obs:'',set:'',theme:'system'};
+var CFG={endpoint:'',obs:'',set:'',theme:'system',roster:[]};
 function applyTheme(){ var t=CFG.theme; if(t==='system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme',t); }
 function loadCfg(){ return idbGet('meta','cfg').then(function(v){ if(v&&v.val) CFG=Object.assign(CFG,v.val); Clock.endpoint=CFG.endpoint||''; applyTheme(); }); }
 function saveCfg(){ return idbPut('meta',{k:'cfg',val:CFG}); }
@@ -570,7 +570,10 @@ function refreshList(){
     list.sort(function(a,b){return b.createdDevice-a.createdDevice;});
     $('sessCount').textContent=list.length?('('+list.length+')'):'';
     var ul=$('sesslist');
-    if(!list.length){ ul.innerHTML='<li class="empty" style="color:var(--muted);padding:8px 0">아직 저장된 세션이 없습니다.</li>'; return; }
+    /* [D23] 조기 return 금지 — 세션 0건(새 폰 첫 실행)에서도 아래 두 갱신은 반드시 돈다.
+       종전에는 여기서 빠져나가 사전배정 목록이 영영 채워지지 않았다. */
+    if(!list.length){ ul.innerHTML='<li class="empty" style="color:var(--muted);padding:8px 0">아직 저장된 세션이 없습니다.</li>'; }
+    else{
     ul.innerHTML='';
     list.forEach(function(s){
       var li=document.createElement('li');
@@ -582,7 +585,9 @@ function refreshList(){
       open.addEventListener('click',function(){ if(s.ended){ download('HAIR_'+s.pid+'_'+s.id+'.csv', matrixToCsv(sessRows(s,true,s.endTs))); } else { resumeSession(s); } });
       li.appendChild(open); ul.appendChild(li);
     });
+    }
     openGate(list);                                       // [D22] 미종료 세션 게이트 갱신
+    fillPidRoster(list);                                  // [D23] 사전배정 목록 + '관찰함' 표시
   });
 }
 
@@ -604,13 +609,84 @@ function openGate(list){
 function esc(t){return String(t==null?'':t).replace(/[<>&]/g,function(c){return{'<':'&lt;','>':'&gt;','&':'&amp;'}[c];});}
 
 /* ───────── 세션 시작/재개 ───────── */
+/* ───────── [D23] 사전배정 익명ID 목록 ─────────
+   침상 옆 타이핑을 없애는 것이 목적이지만, 실제 이득은 **조인 무결성**이다 —
+   목록에서 고르면 연결로그와 문자열이 어긋날 수 없다. 목록에 없는 환자를 위해
+   3자리 직접입력을 남기되, 그쪽도 접두사는 병동 드롭다운에서 만들어 준다. */
+function parseRoster(txt){
+  var raw=String(txt||'').toUpperCase().split(/[\s,;]+/), seen={}, out=[], i, v;
+  for(i=0;i<raw.length;i++){
+    v=raw[i].trim();
+    if(!v||!PID_RE.test(v)||seen[v]) continue;             // 형식 불일치·중복은 버린다
+    seen[v]=1; out.push(v);
+  }
+  out.sort();
+  return out;
+}
+function pad3(n){ n=String(n).replace(/\D/g,'').slice(0,3); while(n.length<3) n='0'+n; return n; }
+
+/* 목록 select 를 다시 그린다. usedList 가 오면 이미 관찰한 ID 에 표시를 단다
+   — 같은 환자를 두 번 여는 실수를 고르는 순간 알아채게 한다. */
+function fillPidRoster(usedList){
+  var sel=$('s_pid_sel'); if(!sel) return;
+  var used={}, i;
+  for(i=0;i<(usedList||[]).length;i++) used[String(usedList[i].pid||'').toUpperCase()]=1;
+  var keep=sel.value;
+  sel.innerHTML='';
+  var roster=CFG.roster||[];
+  var o0=document.createElement('option');
+  o0.value=''; o0.textContent=roster.length?'— 사전배정 목록에서 선택 —':'— 목록이 비어 있습니다(설정에서 등록) —';
+  sel.appendChild(o0);
+  for(i=0;i<roster.length;i++){
+    var o=document.createElement('option');
+    o.value=roster[i]; o.textContent=roster[i]+(used[roster[i]]?'   · 관찰함':'');
+    sel.appendChild(o);
+  }
+  var om=document.createElement('option');
+  om.value='__manual__'; om.textContent='✎ 목록에 없음 — 직접 입력';
+  sel.appendChild(om);
+  /* 목록이 비어 있으면(첫 실행·미등록) 직접 입력으로 자동 전환한다 — 빈 select 앞에서
+     막히지 않게 한다. */
+  sel.value=keep||(roster.length?'':'__manual__');
+  if(sel.value!==keep && !roster.length) sel.value='__manual__';
+  pidMode();
+}
+
+/* 선택 상태에 따라 화면을 바꾸고 #s_pid(값 운반자)를 채운다. */
+function pidMode(){
+  var sel=$('s_pid_sel'); if(!sel) return;
+  var manual=(sel.value==='__manual__');
+  $('s_pid_manualbox').classList.toggle('hidden',!manual);
+  if(manual){
+    var ward=($('s_set').value||CFG.set||'16E').trim().toUpperCase();
+    if(ward!=='16E'&&ward!=='15E') ward='16E';
+    $('s_pid_prefix').textContent='P-'+ward+'-';
+    var num=($('s_pid_num').value||'').replace(/\D/g,'');
+    $('s_pid').value=num?('P-'+ward+'-'+pad3(num)):'';
+  }else{
+    $('s_pid').value=sel.value||'';
+    /* 목록에서 고른 ID 는 병동을 이미 품고 있다 — set_assign 을 맞춰 두면
+       startSession 의 병동 대조가 헛되이 confirm 을 띄우지 않는다. */
+    if(sel.value){ var w=sel.value.split('-')[1]; if($('s_set')) $('s_set').value=w; }
+  }
+  var v=$('s_pid').value;
+  $('s_pid_echo').innerHTML=v
+    ? '이 세션의 <b>patient_id = '+v+'</b> 로 저장됩니다. ㉠ 연결로그의 값과 같은지 확인하세요.'
+    : '㉠ 연결로그에 <b>사전배정된 익명ID</b> 만 씁니다. 목록은 <b>설정</b>에서 붙여넣어 갱신합니다. 씨어스 <b>measurement_code</b> 는 여기에 넣지 않습니다.';
+}
+/* [D23] 오류 시 포커스는 '지금 보이는' 컨트롤로 — #s_pid 는 hidden 이라 focus 가 먹지 않는다. */
+function focusPid(){
+  var sel=$('s_pid_sel');
+  if(sel && sel.value==='__manual__'){ $('s_pid_num').focus(); } else if(sel){ sel.focus(); }
+}
+
 function startSession(){
   var obs=($('s_obs').value||'').trim();
   var pid=($('s_pid').value||'').trim().toUpperCase();
   if(!obs){ alert('관찰자 ID를 선택하세요.'); $('s_obs').focus(); return; }
-  if(!pid){ alert('환자 익명 ID(patient_id)를 입력하세요.'); $('s_pid').focus(); return; }
+  if(!pid){ alert('환자 익명 ID(patient_id)를 고르거나 입력하세요.'); focusPid(); return; }
   if(!PID_RE.test(pid)){
-    $('s_pid').value=pid; $('s_pid').focus();
+    $('s_pid').value=pid; focusPid();
     alert('환자 익명 ID 형식이 맞지 않습니다.\n\n입력값 : '+pid+
           '\n정본 형식 : P-16E-001  (P-{병동}-{일련3자리})\n\n'+
           '㉠ 연결로그에 사전배정된 익명ID를 그대로 입력하세요.\n'+
@@ -737,11 +813,19 @@ function resumeSession(sess){
 /* ───────── 설정 화면 ───────── */
 function openSettings(){
   $('cfg_time').value=CFG.endpoint||''; setObsSel('cfg_obs',CFG.obs); $('cfg_set').value=CFG.set||''; $('cfg_theme').value=CFG.theme||'system';
+  $('cfg_roster').value=(CFG.roster||[]).join('\n');       // [D23]
   paintSync(); show('settingsScreen');
 }
 function commitCfg(){
   CFG.endpoint=($('cfg_time').value||'').trim(); CFG.obs=($('cfg_obs').value||'').trim();
   CFG.set=($('cfg_set').value||'').trim(); CFG.theme=$('cfg_theme').value;
+  /* [D23] 형식이 맞는 줄만 남긴다. 몇 건이 버려졌는지 반드시 알린다 —
+     조용히 버리면 배정된 환자가 목록에 없는 이유를 아무도 모른다. */
+  var rawLines=String($('cfg_roster').value||'').split(/[\s,;]+/).filter(function(x){return x.trim();});
+  CFG.roster=parseRoster($('cfg_roster').value);
+  var dropped=rawLines.length-CFG.roster.length;
+  if(dropped>0) alert('익명ID 목록 '+CFG.roster.length+'건을 저장했습니다.\n\n'+
+    dropped+'건은 형식(P-16E-001)에 맞지 않거나 중복이라 제외했습니다.\n확인 후 다시 붙여넣으세요.');
   Clock.endpoint=CFG.endpoint; applyTheme();
   // [D4] 설정 저장이 실패해도 화면은 닫아 주되(입력값은 메모리에 반영됨) 실패는 배너로 알린다
   saveCfg().catch(function(e){ saveFail(e); }).then(function(){ return Clock.sync(); }).then(backFromSettings);
@@ -773,16 +857,20 @@ function bind(){
   $('saveCsv').addEventListener('click',exportCurrent);
   /* [D4] 배너 안의 탈출구 — 저장 실패로 요약화면에 못 가도 여기서 메모리 그대로 내보낸다. */
   if($('bannerCsv')) $('bannerCsv').addEventListener('click',exportCurrent);
-  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_serial').value=''; $('memo').value=''; memoWarn(); setObsSel('s_obs',CFG.obs); if($('s_set'))$('s_set').value=CFG.set||''; if($('s_start'))$('s_start').value='LIE'; if($('s_dual'))$('s_dual').value='0'; show('startScreen'); refreshList(); });
+  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_pid_sel').value=''; $('s_pid_num').value=''; $('s_serial').value=''; $('memo').value=''; memoWarn(); setObsSel('s_obs',CFG.obs); if($('s_set'))$('s_set').value=CFG.set||''; if($('s_start'))$('s_start').value='LIE'; if($('s_dual'))$('s_dual').value='0'; show('startScreen'); refreshList(); });
   /* [D22] memo 는 CSV note 로 직행하는 유일한 자유텍스트다. 등록번호·연락처가 흘러드는 것을
      막되, 코딩 흐름은 끊지 않는다 — 모달이 아니라 입력칸 경고 표시로만 알린다
      (전이 탭 시점에 모달을 띄우면 시각이 critical 한 순간에 CRC 를 붙잡게 된다). */
   $('memo').addEventListener('input',memoWarn);
-  /* [D21] 익명ID 는 입력 즉시 대문자로 고정한다(p-16e-001 을 조용히 통과시키지 않는다). */
-  if($('s_pid')) $('s_pid').addEventListener('input',function(){
-    var p=this.selectionStart, v=this.value.toUpperCase();
-    if(v!==this.value){ this.value=v; try{ this.setSelectionRange(p,p); }catch(e){} }
+  /* [D23] 목록 선택 · 3자리 입력 · 병동 변경 → 모두 #s_pid 를 다시 계산한다.
+     [D21] 대문자 고정은 여기서 불필요해졌다 — 목록 값은 정본이고, 직접입력은 숫자뿐이다. */
+  if($('s_pid_sel')) $('s_pid_sel').addEventListener('change',pidMode);
+  if($('s_pid_num')) $('s_pid_num').addEventListener('input',function(){
+    var v=this.value.replace(/\D/g,'').slice(0,3);        // 숫자 외 입력은 즉시 버린다
+    if(v!==this.value) this.value=v;
+    pidMode();
   });
+  if($('s_set')) $('s_set').addEventListener('change',pidMode);
   $('exportAll').addEventListener('click',function(){
     idbAll('sessions').then(function(list){
       /* [D4] 저장이 실패한 상태에서도 이 버튼이 낡은 IndexedDB 사본을 내보내지 않도록
