@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.30';
+var APP_VERSION='1.31';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -585,7 +585,13 @@ function endSession(){
   /* [D4] 저장이 확인된 뒤에만 요약화면으로 넘어간다. 실패하면 배너를 띄우고 코딩화면에 머문다
      — 종료 버튼을 다시 누르면 (행 중복 없이) 저장만 재시도한다. */
   var endTs=S.endTs;
-  persistNow().then(function(){ buildSummary(S,endTs); show('summaryScreen'); }).catch(saveFail);
+  /* [D37] 종료했으므로 자동재개 표식과 재개 배너를 턴다. */
+  clearLive(); RESUMED_PID=null;
+  persistNow().then(function(){
+    buildSummary(S,endTs); show('summaryScreen');
+    /* [D36] 관찰 중이라 미뤄 둔 판본 교체를 **세션이 닫힌 지금** 적용한다. */
+    if(SW_PENDING && !SW_RELOADED){ SW_RELOADED=true; setTimeout(function(){ location.reload(); },1200); }
+  }).catch(saveFail);
 }
 function kpi(v,a,l){ if(l===undefined){l=a;a='';} return '<div class="kpi '+a+'"><div class="v">'+v+'</div><div class="l">'+l+'</div></div>'; }
 function buildSummary(sess,endTs){
@@ -833,6 +839,9 @@ function beginSession(obs,pid,set){
                 start:startState,dual:dual});
   // [D4] 설정 저장 실패가 세션 시작을 막지는 않지만, 미처리 rejection 으로 새지 않게 한다
   CFG.obs=obs; CFG.set=set; saveCfg().catch(function(){});
+  /* [D37] 새 세션이므로 **재개 상태를 반드시 턴다** — 이 줄이 빠져 있어서
+     환자 002 를 시작해도 「이어서 기록 중 · P-16E-001」 배너가 남았다(현장 보고). */
+  markLive(S.id); RESUMED_PID=null;
   persistNow().then(function(){ show('codeScreen'); render(); }).catch(saveFail);
 }
 /* [D2] 마지막으로 '관찰이 살아 있었다'고 말할 수 있는 시각 */
@@ -959,11 +968,7 @@ function bind(){
   $('markerBtn').addEventListener('click',tapSyncMarker);
   $('undo').addEventListener('click',doUndo);
   $('undo').addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){doUndo();e.preventDefault();}});
-  $('unc').addEventListener('click',function(){if(!S||S.ended)return;S.unc=!S.unc;if(S.unc)S.uncCount++;markLive(S.id); RESUMED_PID=null;                   // [D34][D35] 새 세션은 재개 아님
-  clearLive(); RESUMED_PID=null;                      // [D34][D35] 종료하면 재개 아님
-  /* [D36] 관찰 중이라 미뤄 둔 판본 교체를 **세션이 닫히는 지금** 적용한다. */
-  if(SW_PENDING && !SW_RELOADED){ SW_RELOADED=true; setTimeout(function(){ location.reload(); },900); }
-  persist();render();$('memo').focus();});
+  $('unc').addEventListener('click',function(){if(!S||S.ended)return;S.unc=!S.unc;if(S.unc)S.uncCount++;persist();render();$('memo').focus();});
   // [D8] 센서 토글을 로그에 남겨 undo 가능하게 한다(값은 이후 push 되는 행부터 반영).
   $('sensorbtn').addEventListener('click',function(){
     if(!S||S.ended)return;
