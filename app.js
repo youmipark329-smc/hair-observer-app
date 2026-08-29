@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.31';
+var APP_VERSION='1.32';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -542,8 +542,13 @@ function sessRows(sess,includeHead,nowTs){
   });
   // [D1] context 행종: is_bed_exit=0 · motion_detail·in_bed_move 공란 · 시각은 구간 경계
   ctxRows(sess,nowTs).forEach(function(cb){
+    /* [D38] 재개(앱 재시작)로 생긴 미관찰 구간에만 고정 토큰을 싣는다. 관찰자가 실제로
+       자리를 뜬 off_view 와 CSV 에서 구분되지 않으면, SAP 부록 C.1 의 **사유별 커버리지
+       집계(MAR 점검)** 에서 임상적 사유와 기술적 잡음이 한 칸에 섞인다.
+       자유텍스트 컬럼을 재사용하므로 **26컬럼은 그대로**이고, 로더가 이 토큰을
+       `is_resume_gap` 으로 뽑은 뒤 note 는 기존대로 버린다(PII 경로 유지). */
     out.push([rid(cb.rid),sess.obs,sess.pid,dateStr(cb.start),clock(cb.start),cb.open?'(진행중)':clock(cb.end),
-      'context',0,cb.ctx,'',senOut(cb),0,cb.dur.toFixed(1),'',sess.enroll,sess.set||'','',
+      'context',0,cb.ctx,'',senOut(cb),0,cb.dur.toFixed(1),(cb.gap?'__resume_gap__':''),sess.enroll,sess.set||'','',
       isoMs(cb.start),cb.open?'':isoMs(cb.end),offOut(cb),cb.flag||'',sess.id,sess.serial||'',
       APP_VERSION,rttOut(cb),sess.dual]);
   });
