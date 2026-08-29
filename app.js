@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.34';
+var APP_VERSION='1.35';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -24,7 +24,7 @@ var $=function(id){return document.getElementById(id);};
 
 /* ───────── 어휘 (코딩시트 목록과 정합) ───────── */
 var STATES=[{c:'LIE',k:'누움'},{c:'SIT',k:'앉음'},{c:'STD',k:'일어섬'},{c:'WLK',k:'걸음'}];
-var CTX=[{c:'none',k:'관찰 중'},{c:'toilet',k:'화장실'},{c:'procedure',k:'처치중'},{c:'off_view',k:'시야이탈'},{c:'off_ward',k:'병동밖'}];
+var CTX=[{c:'none',k:'관찰 중'},{c:'toilet',k:'화장실'},{c:'procedure',k:'처치·가림'},{c:'off_view',k:'시야이탈'},{c:'off_ward',k:'병동밖'}];
 var MOT=[{c:'tremor',k:'떨림'},{c:'brush_repeat',k:'반복상지'},{c:'scratch',k:'긁기'},{c:'eat',k:'식사'},{c:'turn',k:'뒤척임'},{c:'care',k:'관계자개입'},{c:'other',k:'기타'}];
 /* [D7] 전이코드는 4×3=12 전이 모두 FROM→TO 로 통일한다(WLK 포함).
    예전처럼 WLK 가 끼면 도착코드로 뭉개면 LIE→WLK 가 'WLK' 로 사라져 이중검증이 불가능해진다.
