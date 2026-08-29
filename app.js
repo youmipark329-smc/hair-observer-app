@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.35';
+var APP_VERSION='1.36';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -24,7 +24,13 @@ var $=function(id){return document.getElementById(id);};
 
 /* ───────── 어휘 (코딩시트 목록과 정합) ───────── */
 var STATES=[{c:'LIE',k:'누움'},{c:'SIT',k:'앉음'},{c:'STD',k:'일어섬'},{c:'WLK',k:'걸음'}];
-var CTX=[{c:'none',k:'관찰 중'},{c:'toilet',k:'화장실'},{c:'procedure',k:'처치·가림'},{c:'off_view',k:'시야이탈'},{c:'off_ward',k:'병동밖'}];
+/* [D42] 관찰자가 누르는 맥락은 **4개**다. `시야이탈` 버튼은 삭제했다 —
+   침대 위 가림은 `커튼`, 병실을 뜨는 것은 `화장실`/`병실 밖` 으로 모두 덮인다.
+   ★ 저장값 `off_view` 는 **지우지 않는다.** resumeSession 이 재개 미관찰 구간을
+     `context='off_view'` 로 남기므로(D2) 값을 없애면 그 구간이 갈 곳이 없다.
+     v1.36 부터 `off_view` 는 **시스템 생성 전용**(관찰자는 만들 수 없다). */
+var CTX=[{c:'none',k:'관찰 중'},{c:'toilet',k:'화장실'},{c:'procedure',k:'커튼'},{c:'off_ward',k:'병실 밖'}];
+var CTX_SYS={off_view:'재개 미관찰'};        // [D42] 버튼에 없지만 라벨은 필요한 값
 var MOT=[{c:'tremor',k:'떨림'},{c:'brush_repeat',k:'반복상지'},{c:'scratch',k:'긁기'},{c:'eat',k:'식사'},{c:'turn',k:'뒤척임'},{c:'care',k:'관계자개입'},{c:'other',k:'기타'}];
 /* [D7] 전이코드는 4×3=12 전이 모두 FROM→TO 로 통일한다(WLK 포함).
    예전처럼 WLK 가 끼면 도착코드로 뭉개면 LIE→WLK 가 'WLK' 로 사라져 이중검증이 불가능해진다.
@@ -303,7 +309,8 @@ function dateStr(ms){var d=new Date(ms);return d.getFullYear()+'-'+pad(d.getMont
 function stampSec(ms){var d=new Date(ms);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());}
 function isoMs(ms){var d=new Date(ms);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())+'.'+String(ms%1000+1000).slice(1);}
 function koState(c){for(var i=0;i<STATES.length;i++)if(STATES[i].c===c)return STATES[i].k;return c;}
-function koCtx(c){for(var i=0;i<CTX.length;i++)if(CTX[i].c===c)return CTX[i].k;return c;}
+function koCtx(c){for(var i=0;i<CTX.length;i++)if(CTX[i].c===c)return CTX[i].k;
+  return CTX_SYS[c]||c;}                     // [D42] 시스템 생성 값도 한글로
 function fmtDur(s){s=Math.max(0,Math.round(s));if(s<60)return s+'s';var m=Math.floor(s/60);return m+'m '+pad(s%60)+'s';}
 function memoVal(){return($('memo').value||'').trim();}
 /* [D22] 6자리 이상 연속 숫자(등록번호) 또는 휴대전화 형태면 입력칸을 붉게 표시한다.
@@ -382,7 +389,7 @@ function tapContext(x){
      [D33] 판정 기준을 **탭한 칩(x.c)** 이 아니라 **결과 맥락(newc)** 으로 바꿨다 —
      종전에는 화장실을 다시 눌러 **해제**할 때(= 복귀)도 x.c 가 'toilet' 이라
      리마인더가 떴다. 조건이 SIT 까지 넓어지면서 그 오작동이 훨씬 자주 보이게 된다. */
-  var leaving=(newc==='toilet'||newc==='off_view'||newc==='off_ward');
+  var leaving=(newc==='toilet'||newc==='off_ward');   // [D42] off_view 는 버튼에서 삭제
   if(leaving&&(S.cur==='LIE'||S.cur==='SIT')&&!S.reminded){ showToast(); S.reminded=true; }
   // [D1] 이 구간이 그대로 CSV 의 code='context' 행 1개가 된다 → rid·시각·스냅샷을 모두 갖춘다.
   S.ctxBouts.push({rid:S.ctxRid,ctx:S.ctx,start:S.ctxStart,end:ts,dur:Math.max(0,(ts-S.ctxStart)/1000),
@@ -610,7 +617,9 @@ function buildSummary(sess,endTs){
   var total=(endTs-sess.sessionStart)/1000, byState={LIE:0,SIT:0,STD:0,WLK:0}, bed=0, trans=0;
   sess.bouts.forEach(function(b){byState[b.state]=(byState[b.state]||0)+b.dur; if(b.isBed)bed++; if((''+b.enter).indexOf('→')>=0)trans++;});
   var off=0;
-  sess.ctxBouts.forEach(function(cb){ if(cb.ctx==='off_view'||cb.ctx==='off_ward')off+=cb.dur; });
+  /* [D42] 기존 불일치 정정 — `off_view|off_ward` 만 세고 있어 화장실·커튼이 빠져 있었다.
+     D39/D40 이후 **관찰 중이 아닌 맥락은 전부 미관찰**이므로 그대로 센다. */
+  sess.ctxBouts.forEach(function(cb){ if(cb.ctx&&cb.ctx!=='none')off+=cb.dur; });
   var valid=Math.max(0,total-off), cov=total>0?valid/total*100:100;
   $('ssub').textContent='근무 종료 '+clock(endTs)+' · '+sess.pid+' · 자동 집계 (동기 '+sess_flag(sess)+')';
   $('kpis').innerHTML=
@@ -618,7 +627,7 @@ function buildSummary(sess,endTs){
     kpi(cov.toFixed(0)+'%',(off>0?'warn':'good'),'유효 커버리지 (유효 '+fmtDur(valid)+')')+
     kpi(String(bed),(bed>0?'good':''),'목격 bed-exit')+
     kpi(String(trans),'','상태 전환 수')+
-    kpi(fmtDur(off),(off>0?'warn':''),'미관찰 off_view/ward')+
+    kpi(fmtDur(off),(off>0?'warn':''),'미관찰(관찰 중 아님)')+
     kpi(String(sess.motions.length),'','움직임 태그')+
     kpi(String((sess.markers||[]).length),((sess.markers||[]).length>0?'good':''),'⏱ 동기마커(#8)')+
     kpi(String(sess.uncCount),(sess.uncCount>0?'alert':''),'불확실 횟수')+
