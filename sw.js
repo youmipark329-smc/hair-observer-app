@@ -1,5 +1,5 @@
-/* HAIR 관찰코딩 · Service Worker · app v1.38 (2026-08-29)
-   [D20] CACHE 이름은 app.js 의 APP_VERSION 과 함께 올린다(v1.38 ↔ hair-observer-v41).
+/* HAIR 관찰코딩 · Service Worker · app v1.39 (2026-08-29)
+   [D20] CACHE 이름은 app.js 의 APP_VERSION 과 함께 올린다(v1.39 ↔ hair-observer-v42).
 
    [D26] v1.20 — **cache-first(셸 원자성)**. v1.16~v1.19 의 network-first + 1.5초 상한을 걷어낸다.
    왜 바꾸나: 상한이 **파일마다 따로** 판정되다 보니 index.html 은 캐시(옛 판),
@@ -15,7 +15,7 @@
    (v1.16 이 1.5초로 줄인 것을 0으로 만든다).
 
    관찰 데이터는 IndexedDB(캐시와 무관). 시각 엔드포인트 등 외부 API는 항상 네트워크. */
-var CACHE='hair-observer-v41';
+var CACHE='hair-observer-v42';
 var SHELL=['./','./index.html','./app.js','./manifest.webmanifest',
   './icons/icon-192.png','./icons/icon-512.png','./icons/icon-maskable-512.png'];
 

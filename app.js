@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.38';
+var APP_VERSION='1.39';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -371,6 +371,7 @@ function tapState(c){
      걷는다는 것은 이미 섰다는 뜻이므로 그 이벤트를 잃지 않는다. */
   var isBed=((S.cur==='LIE'||S.cur==='SIT')&&(c==='STD'||c==='WLK'));
   S.log.push({t:clock(ts),kind:'transition',code:transCode(S.cur,c),bed:isBed,dur:Math.max(0,(ts-S.boutStart)/1000),from:S.cur});
+  noteTarget=null;                                   // [D45] 다른 기록을 누르면 대상 해제
   S.cur=c; S.boutStart=ts; S.boutStartDev=dev;
   S.boutRid='r'+(++S.seq); S.boutRid2='r'+(++S.seq);   // [D3][D9] 전이행·상태행 몫을 함께 부여
   S.boutEnter=S.log[S.log.length-1].code; S.boutIsBed=isBed; S.reminded=false;
@@ -387,8 +388,12 @@ function tapMotion(m,b){
     offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});   // [D8] 스냅샷
   S.log.push({t:clock(ts),kind:'motion',code:'motion:'+m.c+(ibm?' (in_bed_move=1)':''),bed:false});
   b.classList.add('on'); setTimeout(function(){b.classList.remove('on');},420);
-  S.unc=false;                                        // [D31] 여기서도 한 건만 싣고 끈다
-  if(nt)$('memo').value=''; persist(); render();
+  if(nt)$('memo').value='';
+  /* [D45] `기타` 는 사후 코드북 매핑이 전제라 **메모가 없으면 쓸모가 없다.**
+     시각은 이미 확정됐으니(위 push), 이제 메모를 받아 그 행에 소급해 채운다. */
+  if(m.c==='other'){ noteTarget=S.motions[S.motions.length-1]; $('memo').value=nt||'';
+                     persist(); render(); $('memo').focus(); return; }
+  noteTarget=null; persist(); render();
 }
 function tapContext(x){
   if(!S||S.ended)return;
@@ -434,7 +439,8 @@ function doUndo(){
   /* [D31] 되돌린 행이 싣고 간 불확실을 되살린다 — 안 하면 실행취소 뒤 버튼 표시가
      실제 기록 상태와 어긋난다(꺼져 보이는데 되살아난 구간은 여전히 애매한 구간이다). */
   if(e.kind==='transition'){ var b=S.bouts.pop(); if(b){S.cur=b.state;S.boutStart=b.start;S.boutStartDev=b.startDev;S.boutEnter=b.enter;S.boutIsBed=b.isBed;S.boutRid=b.rid;S.boutRid2=b.rid2;S.unc=!!b.unc;} }
-  else if(e.kind==='motion'){ var mo=S.motions.pop(); if(mo) S.unc=!!mo.unc; }
+  else if(e.kind==='motion'){ var mo=S.motions.pop();
+    if(mo && noteTarget===mo){ noteTarget=null; $('memo').value=''; } }   // [D45]
   else if(e.kind==='marker'){ S.markers.pop(); }
   else if(e.kind==='context'){ var cb=S.ctxBouts.pop(); if(cb){S.ctx=cb.ctx;S.ctxStart=cb.start;S.ctxRid=cb.rid;} }
   else if(e.kind==='sensor'){ S.sensor=e.prev; }   // [D8] 센서 토글도 undo 대상
@@ -472,9 +478,11 @@ function render(){
   if(S.ctx!=='none'){ cb.className='banner ctx'; cb.textContent='⚠ 맥락: '+koCtx(S.ctx)+' — 관찰 복귀를 상기'; }
   if(LOCKED()){ lb.className='banner lock';
     lb.textContent='🔒 미관찰: '+koCtx(S.ctx)+' — 상태·움직임 입력 잠금 · 관찰 복귀 시 자동 해제'; }
-  $('unc').classList.toggle('on',S.unc);
+  /* [D45] `불확실` 삭제 — SAP 어디에도 분석 변수로 없었다(적재만 되던 컬럼). */
   $('sensor').textContent=S.sensor; $('sensorbtn').classList.toggle('senson',S.sensor==='on'); $('sensorbtn').classList.toggle('senswarn',S.sensor!=='on');
-  $('memo').classList.toggle('req',S.unc&&!$('memo').value.trim());
+  var mm=$('memo');
+  mm.classList.toggle('req',!!noteTarget&&!mm.value.trim());   // [D45] 기타는 메모 필수
+  mm.placeholder=noteTarget?'기타 — 무엇이었는지 적어주세요 (필수)':'메모 (선택)';
   var mcEl=$('mcount'); if(mcEl) mcEl.textContent=(S.markers||[]).length;
   var ul=$('events');
   if(!S.log.length){ ul.innerHTML='<li class="empty">아직 기록 없음 — 상태 버튼을 눌러보세요</li>'; }
@@ -724,6 +732,9 @@ function esc(t){return String(t==null?'':t).replace(/[<>&]/g,function(c){return{
 var LIVE_KEY='hair_live';
 var RESUMED_PID=null;    // [D35] 재개로 들어온 세션의 환자 ID(배너 표시용)
 var SW_PENDING=false;    // [D36] 새 판본이 준비됐으나 관찰중이라 대기
+/* [D45] `기타` 로 방금 남긴 순간행 — 이후 입력되는 메모를 **이 행에 소급** 채운다.
+   메모를 다 쓴 뒤 기록하면 타임스탬프가 밀리므로(매칭창이 초 단위) 순서를 뒤집는다. */
+var noteTarget=null;
 function markLive(id){ try{ sessionStorage.setItem(LIVE_KEY,String(id)); }catch(e){} }
 function clearLive(){ try{ sessionStorage.removeItem(LIVE_KEY); }catch(e){} }
 function isLive(id){ try{ return sessionStorage.getItem(LIVE_KEY)===String(id); }catch(e){ return false; } }
@@ -999,7 +1010,11 @@ function bind(){
   $('markerBtn').addEventListener('click',tapSyncMarker);
   $('undo').addEventListener('click',doUndo);
   $('undo').addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){doUndo();e.preventDefault();}});
-  $('unc').addEventListener('click',function(){if(!S||S.ended)return;S.unc=!S.unc;if(S.unc)S.uncCount++;persist();render();$('memo').focus();});
+  /* [D45] `불확실` 버튼 삭제. 대신 메모 입력이 `기타` 행에 **소급** 저장된다. */
+  $('memo').addEventListener('input',function(){
+    memoWarn();
+    if(noteTarget){ noteTarget.note=memoVal(); persist(); render(); }
+  });
   // [D8] 센서 토글을 로그에 남겨 undo 가능하게 한다(값은 이후 push 되는 행부터 반영).
   $('sensorbtn').addEventListener('click',function(){
     if(!S||S.ended)return;
