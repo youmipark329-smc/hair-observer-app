@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.43';
+var APP_VERSION='1.44';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -38,7 +38,12 @@ var CTX=[{c:'none',k:'관찰중'},{c:'toilet',k:'화장실'},
    `관찰자이석`(신규 `observer_away`)은 **사유의 주체가 다르다** — 환자를 볼 수 없는 것이
    아니라 **관찰자가 없는** 것이다. 결측기전(MAR) 점검에서 갈라 봐야 하므로 별도 값으로 둔다. */
 var CTX_SYS={off_view:'재개 미관찰'};        // [D42] 버튼에 없지만 라벨은 필요한 값
-var MOT=[{c:'tremor',k:'떨림'},{c:'brush_repeat',k:'반복상지'},{c:'scratch',k:'긁기'},{c:'eat',k:'식사'},{c:'turn',k:'뒤척임'},{c:'care',k:'관계자개입'},{c:'other',k:'기타'}];
+/* [D53] `식사` 만 **구간**이다 — 10~30분 지속되므로 점으로 찍으면 분모가 안 나온다.
+   나머지는 순간이거나 짧아 점으로 충분하다(떨림·뒤척임 등).
+   버튼은 둘이지만 **저장 어휘는 `eat` 하나** — pooling(G-HF)·26컬럼을 건드리지 않는다. */
+var MOT=[{c:'tremor',k:'떨림'},{c:'brush_repeat',k:'반복상지'},{c:'scratch',k:'긁기'},
+         {c:'eat',k:'식사 시작',bout:'start'},{c:'eat',k:'식사 끝',bout:'end'},
+         {c:'turn',k:'뒤척임'},{c:'care',k:'관계자개입'},{c:'other',k:'기타'}];
 /* [D7] 전이코드는 4×3=12 전이 모두 FROM→TO 로 통일한다(WLK 포함).
    예전처럼 WLK 가 끼면 도착코드로 뭉개면 LIE→WLK 가 'WLK' 로 사라져 이중검증이 불가능해진다.
    bed-exit 판정은 transCode 가 아니라 (from∈{LIE,SIT} && to∈{STD,WLK}) 로만 한다(io_load.py 와 동일 규칙).
@@ -261,7 +266,7 @@ function newSession(meta){
        [D9] 한 bout 은 전이행+상태행 최대 2행으로 나가므로 rid 를 2개 예약한다.
        열린 채로 export 해도 같은 값이 나오고, undo 해도 번호를 되돌리지 않아 영구 유일하다. */
     seq:3, boutRid:'r1', boutRid2:'r2', ctxRid:'r3',
-    bouts:[], ctxStart:ts, ctxBouts:[], motions:[], markers:[], undos:[], log:[], undoCount:0, uncCount:0
+    bouts:[], ctxStart:ts, ctxBouts:[], motions:[], markers:[], undos:[], eatOpen:null, log:[], undoCount:0, uncCount:0
   };
 }
 /* [D2][D3] 구형(이전 버전) 세션을 신설 필드로 올린다.
@@ -279,6 +284,7 @@ function migrate(sess){
   if(!sess.bouts) sess.bouts=[]; if(!sess.ctxBouts) sess.ctxBouts=[];
   if(!sess.motions) sess.motions=[]; if(!sess.markers) sess.markers=[]; if(!sess.log) sess.log=[];
   if(!sess.undos) sess.undos=[];                     // [D47] 구형 세션 보정
+  if(sess.eatOpen===undefined) sess.eatOpen=null;    // [D53] 구형 세션 보정
   return sess;
 }
 /* [D4] 치명 경고 배너 — 지워지지 않는다(닫기 버튼 없음). 모든 화면 위에 고정되며
@@ -346,7 +352,9 @@ function buildButtons(){
     b.innerHTML='<span class="ko">'+s.k+'</span><span class="en">'+s.c+'</span>';
     b.addEventListener('click',function(){tapState(s.c);}); sc.appendChild(b);});
   mc=$('motions'); mc.innerHTML='';
-  MOT.forEach(function(m){var b=document.createElement('button');b.className='chip motion';b.type='button';b.dataset.c=m.c;b.textContent=m.k;
+  MOT.forEach(function(m){var b=document.createElement('button');b.className='chip motion';b.type='button';b.dataset.c=m.c;
+    if(m.bout) b.dataset.bout=m.bout;                 // [D53] 식사 시작/끝 구분
+    b.textContent=m.k;
     b.addEventListener('click',function(){tapMotion(m,b);}); mc.appendChild(b);});
   cc=$('contexts'); cc.innerHTML='';
   CTX.forEach(function(x){var b=document.createElement('button');b.className='chip ctx';b.type='button';b.dataset.c=x.c;
@@ -387,7 +395,22 @@ function tapState(c){
 }
 function tapMotion(m,b){
   if(!S||S.ended||LOCKED()||S.cur==='WLK')return;
-  var ts=Clock.now(), ibm=(S.cur==='LIE'&&m.c==='turn'), sn=snapT();   // [D46] 소급 전용
+  var ts=Clock.now(), sn=snapT();
+  /* [D53] 식사는 구간이다. 시작 탭에서 열고 끝 탭에서 닫아 **한 행**으로 낸다. */
+  if(m.bout==='start'){
+    if(S.eatOpen)return;                       // 이미 진행 중(버튼도 비활성)
+    S.eatOpen={rid:'r'+(++S.seq),t:ts,tDev:Clock.deviceNow(),state:S.cur,code:m.c,
+      ibm:0,unc:S.unc,note:'',offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor};
+    S.log.push({t:clock(ts),kind:'motion',code:'motion:eat 시작',bed:false});
+    b.classList.add('on'); persist(); render(); return;
+  }
+  if(m.bout==='end'){
+    if(!S.eatOpen)return;                      // 열린 적 없다(버튼도 비활성)
+    closeEat(ts); b.classList.add('on');
+    setTimeout(function(){b.classList.remove('on');},420);
+    persist(); render(); return;
+  }
+  var ibm=(S.cur==='LIE'&&m.c==='turn');   // [D46] 소급 전용
   S.motions.push({rid:'r'+(++S.seq),t:ts,tDev:Clock.deviceNow(),state:S.cur,code:m.c,ibm:ibm,unc:S.unc,note:'',
     offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});   // [D8] 스냅샷
   S.log.push({t:clock(ts),kind:'motion',code:'motion:'+m.c+(ibm?' (in_bed_move=1)':''),bed:false});
@@ -397,6 +420,15 @@ function tapMotion(m,b){
   $('memo').value=''; noteTarget=S.motions[S.motions.length-1];
   persist(); render();
   if(m.c==='other') $('memo').focus();
+}
+/* [D53] 열린 식사 구간을 닫는다. 세션 종료·재개도 **같은 함수**를 쓴다 —
+   자세 bout 과 같은 규칙으로 닫혀야 열린 채 유실되지 않는다. */
+function closeEat(ts){
+  if(!S||!S.eatOpen)return null;
+  var e=S.eatOpen; e.tEnd=ts; e.dur=Math.max(0,(ts-e.t)/1000);
+  S.motions.push(e); S.eatOpen=null;
+  S.log.push({t:clock(ts),kind:'motion',code:'motion:eat 끝 ('+e.dur.toFixed(0)+'s)',bed:false});
+  return e;
 }
 function tapContext(x){
   if(!S||S.ended)return;
@@ -482,7 +514,16 @@ function render(){
   $('cur').innerHTML=koState(S.cur)+' <b>('+S.cur+')</b>'+(S.boutIsBed?'<span class="be">★ bed-exit</span>':'');
   $('held').innerHTML=fmtDur(openDur);
   Array.prototype.forEach.call(sc.children,function(b){ b.classList.toggle('on',b.dataset.c===S.cur); b.disabled=LOCKED()||S.ended; });
-  Array.prototype.forEach.call(mc.children,function(b){ b.classList.toggle('disabled',LOCKED()||S.cur==='WLK'||S.ended); });
+  /* [D53] 식사 시작/끝은 **서로 배타**다 — 진행 중이면 시작을, 아니면 끝을 잠근다.
+     순서가 어긋난 탭(끝 먼저·시작 두 번)을 화면에서 원천 차단한다. */
+  var eatOn=!!(S&&S.eatOpen);
+  Array.prototype.forEach.call(mc.children,function(b){
+    var off=LOCKED()||S.cur==='WLK'||S.ended;
+    if(b.dataset.bout==='start') off=off||eatOn;
+    if(b.dataset.bout==='end')   off=off||!eatOn;
+    b.classList.toggle('disabled',off);
+    b.classList.toggle('on',b.dataset.bout==='start'&&eatOn);
+  });
   Array.prototype.forEach.call(cc.children,function(b){ var a=b.dataset.c===S.ctx; b.classList.toggle('on',a&&b.dataset.c!=='none'); b.classList.toggle('onnone',a&&b.dataset.c==='none'); });
   var rb=$('resumebanner');
   if(rb){
@@ -606,10 +647,13 @@ function sessRows(sess,includeHead,nowTs){
       isoMs(cb.start),cb.open?'':isoMs(cb.end),offOut(cb),cb.flag||'',sess.id,sess.serial||'',
       APP_VERSION,rttOut(cb),sess.dual]);
   });
+  /* [D53] 식사는 **구간**이라 종료시각·duration 을 낸다(그 외 움직임은 종전대로 점).
+     로더는 duration_sec>0 으로 구간/순간을 구분한다 — 컬럼도 어휘도 늘리지 않았다. */
   (sess.motions||[]).forEach(function(m){
-    out.push([rid(m.rid),sess.obs,sess.pid,dateStr(m.t),clock(m.t),clock(m.t),
-      'motion',0,'',m.ibm?1:0,senOut(m),m.unc?1:0,'0.0',m.note||'',sess.enroll,sess.set||'',m.code,
-      isoMs(m.t),isoMs(m.t),offOut(m),m.flag||'',sess.id,sess.serial||'',
+    var te=(m.tEnd!=null?m.tEnd:m.t), du=(m.dur!=null?Number(m.dur):0);
+    out.push([rid(m.rid),sess.obs,sess.pid,dateStr(m.t),clock(m.t),clock(te),
+      'motion',0,'',m.ibm?1:0,senOut(m),m.unc?1:0,du.toFixed(1),m.note||'',sess.enroll,sess.set||'',m.code,
+      isoMs(m.t),isoMs(te),offOut(m),m.flag||'',sess.id,sess.serial||'',
       APP_VERSION,rttOut(m),sess.dual]);
   });
   /* [D47] 실행취소 감사행 — code='undo' 순간행. 지운 대상은 note 의 고정 토큰에 싣는다.
@@ -663,6 +707,7 @@ function endSession(){
       offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});                       // [D3][D8][D9]
     S.ctxBouts.push({rid:S.ctxRid,ctx:S.ctx,start:S.ctxStart,end:ts,dur:Math.max(0,(ts-S.ctxStart)/1000),
       offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});                       // [D1]
+    closeEat(ts);                       // [D53] 열린 식사 구간을 세션 종료로 닫는다
     S.ended=true; S.endTs=ts;
     /* [D22] note 를 마지막 bout 에 실었으면 입력칸을 비운다. 종전에는 남아 있다가
        [세션 마감 · 새 세션] → 다음 환자의 첫 전이에서 그 문장이 다른 patient_id 의
@@ -993,6 +1038,10 @@ function resumeSession(sess){
   if(closeTs>ts) closeTs=ts;
   if(S.boutStart!=null&&closeTs<S.boutStart) closeTs=S.boutStart;
   if(S.ctxStart!=null&&closeTs<S.ctxStart) closeTs=S.ctxStart;
+  /* [D53] 열린 식사 구간도 **자세 bout 과 같은 시각(closeTs)** 으로 닫는다.
+     안 닫으면 재개 때마다 사라져, 하필 「식사 → 일어섬」 이라는 고수율 구간의
+     노출시간이 조용히 유실된다(자세 bout 만 닫고 넘어갈 뻔했다). */
+  if(!S.ended) closeEat(closeTs);
   if(!S.ended){                                         // 종료 처리된 세션은 endSession 이 이미 push 했다
     S.bouts.push({rid:S.boutRid,rid2:S.boutRid2,state:S.cur,enter:S.boutEnter,isBed:S.boutIsBed,
       start:S.boutStart,startDev:S.boutStartDev,end:closeTs,endDev:dev,dur:Math.max(0,(closeTs-S.boutStart)/1000),
