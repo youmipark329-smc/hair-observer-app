@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.42';
+var APP_VERSION='1.43';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -629,6 +629,26 @@ function sessRows(sess,includeHead,nowTs){
   return out;
 }
 function matrixToCsv(rows){ return '﻿'+rows.map(function(r){return r.map(csvEscape).join(',');}).join('\r\n'); }
+/* ───────── export 파일명 [D51] ─────────
+   하이픈을 쓰지 않는다 — 폰→PC 전송 경로에서 하이픈이 지워져 앱이 만든 이름과
+   도착한 이름이 달라지는 것을 실측했다(HAIR_P-16E-007_S…-12493 → HAIR_P16E007_S…12493).
+   처음부터 없으면 바뀌지 않는다.
+   다만 **그냥 지우기만 하면** `S178798218053512493` 이 되어 어디까지가 시각인지
+   알 수 없다. 세션이 90~120건 쌓이면 파일명만 보고 찾게 되므로 날짜·시각을 드러낸다.
+        HAIR_P16E007_20260829_144300_12493.csv
+   ★ 정본 식별자는 파일명이 아니라 **CSV 의 patient_id·session_id 컬럼**이다.
+     파일명은 사람이 찾기 위한 것이고, 분석은 컬럼만 쓴다. */
+function fileTag(ms){ var d=new Date(ms);
+  return d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'_'+
+         pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds()); }
+function safePid(p){ return String(p||'').replace(/[^A-Za-z0-9]/g,''); }
+function sessFile(s){
+  /* 세션 구분자 = 앱 실행 후 경과 ms(session_id 꼬리). 같은 초에 두 세션이
+     시작해도 파일명이 겹치지 않게 한다. */
+  var tail=String(s.id||'').split('-').pop()||'0';
+  return 'HAIR_'+safePid(s.pid)+'_'+fileTag(s.sessionStart||s.createdDevice||Date.now())+
+         '_'+tail+'.csv';
+}
 function download(name,text){ var blob=new Blob([text],{type:'text/csv;charset=utf-8'}); var a=document.createElement('a');
   a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click();
   setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1500); }
@@ -699,7 +719,7 @@ function mergeCurrent(list){
 }
 function exportCurrent(){
   if(!S){ alert('진행 중인 세션이 없습니다.'); return; }
-  download('HAIR_'+S.pid+'_'+S.id+'.csv', matrixToCsv(sessRows(S,true,S.endTs||Clock.now())));
+  download(sessFile(S), matrixToCsv(sessRows(S,true,S.endTs||Clock.now())));
 }
 function refreshList(){
   return idbAll('sessions').then(function(list){
@@ -719,7 +739,7 @@ function refreshList(){
       li.innerHTML='<div class="meta"><div class="m1">'+esc(s.pid)+pill+'</div>'+
         '<div class="m2">'+esc(s.obs)+(s.set?(' · '+esc(s.set)):'')+(s.dual?' · κ 이중코딩':'')+' · '+dateStr(s.createdDevice)+' '+clock(s.createdDevice)+' · '+dur+'</div></div>';
       var open=document.createElement('button'); open.className='sbtn'; open.textContent=s.ended?'CSV':'이어하기';
-      open.addEventListener('click',function(){ if(s.ended){ download('HAIR_'+s.pid+'_'+s.id+'.csv', matrixToCsv(sessRows(s,true,s.endTs))); } else { resumeSession(s); } });
+      open.addEventListener('click',function(){ if(s.ended){ download(sessFile(s), matrixToCsv(sessRows(s,true,s.endTs))); } else { resumeSession(s); } });
       li.appendChild(open); ul.appendChild(li);
     });
     }
@@ -1221,7 +1241,9 @@ function bind(){
       list.sort(function(a,b){return a.createdDevice-b.createdDevice;});
       var all=[HEAD.slice()];
       list.forEach(function(s){ sessRows(s,false,s.endTs||Clock.now()).forEach(function(r){ all.push(r); }); });
-      download('HAIR_all_sessions_'+dateStr(Date.now())+'.csv', matrixToCsv(all));
+      /* [D51] 접두사 `HAIR_all_sessions_` 는 **바꾸지 않는다** — 로더가 이 이름을 보고
+         「여러 세션 병합본」을 거부한다(io_load.MULTI_SESSION_FILENAME_PREFIX). */
+      download('HAIR_all_sessions_'+fileTag(Date.now()).split('_')[0]+'.csv', matrixToCsv(all));
     });
   });
   $('saveCfg').addEventListener('click',commitCfg);
