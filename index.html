@@ -94,6 +94,10 @@
   .rowlbl{font-size:12px;font-weight:800;color:var(--muted);margin:2px 2px 6px;display:flex;gap:6px;align-items:center}
   .tag{font-size:10px;font-weight:700;color:var(--muted);opacity:.8}
   .chips{display:flex;flex-wrap:wrap;gap:7px}
+  /* [D44] 맥락 5칩을 375px 한 줄에. 움직임상세(7칩)는 종전대로 줄바꿈한다. */
+  #contexts{flex-wrap:nowrap;gap:4px}
+  #contexts .chip{padding:8px 8px;font-size:12.5px;white-space:nowrap;flex:0 1 auto;min-width:0}
+  #contexts .chip .sub{font-size:9.5px;opacity:.72;margin-left:1px}
   .chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:8px 13px;font-size:14px;
     cursor:pointer;color:var(--ink);font-family:inherit}
   .chip:active{transform:scale(.95)}
@@ -408,7 +412,7 @@
 
   </div>
   <!-- [D20] 버전 표기는 app.js 의 APP_VERSION 에서 주입된다(정적 텍스트는 스크립트 미실행 시 폴백) -->
-  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.37</span> (PWA) · <span id="verMode">—</span></div>
+  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.38</span> (PWA) · <span id="verMode">—</span></div>
 </div>
 
 <div class="toast" id="rtoast">

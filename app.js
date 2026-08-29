@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.37';
+var APP_VERSION='1.38';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -29,8 +29,11 @@ var STATES=[{c:'LIE',k:'누움'},{c:'SIT',k:'앉음'},{c:'STD',k:'일어섬'},{c
    ★ 저장값 `off_view` 는 **지우지 않는다.** resumeSession 이 재개 미관찰 구간을
      `context='off_view'` 로 남기므로(D2) 값을 없애면 그 구간이 갈 곳이 없다.
      v1.36 부터 `off_view` 는 **시스템 생성 전용**(관찰자는 만들 수 없다). */
-var CTX=[{c:'none',k:'관찰 중'},{c:'toilet',k:'화장실'},{c:'procedure',k:'가림(커튼)'},
-         {c:'off_ward',k:'병실 밖'},{c:'observer_away',k:'관찰자이석'}];
+/* [D44] `sub` 는 **칩에서만** 작게 붙는 보조 문구다. `k` 는 배너·CSV 인접 표기에 쓰이므로
+   순수 텍스트를 유지한다(koCtx 는 k 를 돌려준다). */
+var CTX=[{c:'none',k:'관찰중'},{c:'toilet',k:'화장실'},
+         {c:'procedure',k:'가림(커튼)',main:'가림',sub:'(커튼)'},
+         {c:'off_ward',k:'병실밖'},{c:'observer_away',k:'관찰자이석'}];
 /* [D43] `가림(커튼)` 은 커튼뿐 아니라 **보호자가 서서 가리는** 경우까지 덮는다.
    `관찰자이석`(신규 `observer_away`)은 **사유의 주체가 다르다** — 환자를 볼 수 없는 것이
    아니라 **관찰자가 없는** 것이다. 결측기전(MAR) 점검에서 갈라 봐야 하므로 별도 값으로 둔다. */
@@ -331,7 +334,7 @@ function memoWarn(){
    움직임상세가 눌려 **보지 않은 행동이 기록**될 수 있었다.
    [D40] `procedure`(처치중)도 포함한다 — **커튼을 치므로 보이지 않는다**(연구자 확인).
    v1.33 에서 내가 「곁에 있어 볼 수 있다」고 가정해 빼뒀던 것을 바로잡는다.
-   ⇒ 관찰 중(none)이 아닌 **모든 맥락에서 자세·움직임 입력이 잠긴다.** */
+   ⇒ 관찰중(none)이 아닌 **모든 맥락에서 자세·움직임 입력이 잠긴다.** */
 var LOCKED=function(){return S&&S.ctx!=='none';};
 
 /* ───────── 버튼 빌드 ───────── */
@@ -345,7 +348,10 @@ function buildButtons(){
   MOT.forEach(function(m){var b=document.createElement('button');b.className='chip motion';b.type='button';b.dataset.c=m.c;b.textContent=m.k;
     b.addEventListener('click',function(){tapMotion(m,b);}); mc.appendChild(b);});
   cc=$('contexts'); cc.innerHTML='';
-  CTX.forEach(function(x){var b=document.createElement('button');b.className='chip ctx';b.type='button';b.dataset.c=x.c;b.textContent=x.k;
+  CTX.forEach(function(x){var b=document.createElement('button');b.className='chip ctx';b.type='button';b.dataset.c=x.c;
+    if(x.sub){ b.textContent=x.main; var sp=document.createElement('span'); sp.className='sub';
+               sp.textContent=x.sub; b.appendChild(sp); }      // [D44] 괄호만 작게
+    else b.textContent=x.k;
     b.addEventListener('click',function(){tapContext(x);}); cc.appendChild(b);});
 }
 
@@ -612,7 +618,7 @@ function endSession(){
   clearLive(); RESUMED_PID=null;
   persistNow().then(function(){
     buildSummary(S,endTs); show('summaryScreen');
-    /* [D36] 관찰 중이라 미뤄 둔 판본 교체를 **세션이 닫힌 지금** 적용한다. */
+    /* [D36] 관찰중이라 미뤄 둔 판본 교체를 **세션이 닫힌 지금** 적용한다. */
     if(SW_PENDING && !SW_RELOADED){ SW_RELOADED=true; setTimeout(function(){ location.reload(); },1200); }
   }).catch(saveFail);
 }
@@ -622,7 +628,7 @@ function buildSummary(sess,endTs){
   sess.bouts.forEach(function(b){byState[b.state]=(byState[b.state]||0)+b.dur; if(b.isBed)bed++; if((''+b.enter).indexOf('→')>=0)trans++;});
   var off=0;
   /* [D42] 기존 불일치 정정 — `off_view|off_ward` 만 세고 있어 화장실·커튼이 빠져 있었다.
-     D39/D40 이후 **관찰 중이 아닌 맥락은 전부 미관찰**이므로 그대로 센다. */
+     D39/D40 이후 **관찰중이 아닌 맥락은 전부 미관찰**이므로 그대로 센다. */
   sess.ctxBouts.forEach(function(cb){ if(cb.ctx&&cb.ctx!=='none')off+=cb.dur; });
   var valid=Math.max(0,total-off), cov=total>0?valid/total*100:100;
   $('ssub').textContent='근무 종료 '+clock(endTs)+' · '+sess.pid+' · 자동 집계 (동기 '+sess_flag(sess)+')';
@@ -631,7 +637,7 @@ function buildSummary(sess,endTs){
     kpi(cov.toFixed(0)+'%',(off>0?'warn':'good'),'유효 커버리지 (유효 '+fmtDur(valid)+')')+
     kpi(String(bed),(bed>0?'good':''),'목격 bed-exit')+
     kpi(String(trans),'','상태 전환 수')+
-    kpi(fmtDur(off),(off>0?'warn':''),'미관찰(관찰 중 아님)')+
+    kpi(fmtDur(off),(off>0?'warn':''),'미관찰(관찰중 아님)')+
     kpi(String(sess.motions.length),'','움직임 태그')+
     kpi(String((sess.markers||[]).length),((sess.markers||[]).length>0?'good':''),'⏱ 동기마커(#8)')+
     kpi(String(sess.uncCount),(sess.uncCount>0?'alert':''),'불확실 횟수')+
@@ -717,7 +723,7 @@ function esc(t){return String(t==null?'':t).replace(/[<>&]/g,function(c){return{
    다음 환자로 이동한 경우를 잘못 이어붙일 수 있다. */
 var LIVE_KEY='hair_live';
 var RESUMED_PID=null;    // [D35] 재개로 들어온 세션의 환자 ID(배너 표시용)
-var SW_PENDING=false;    // [D36] 새 판본이 준비됐으나 관찰 중이라 대기
+var SW_PENDING=false;    // [D36] 새 판본이 준비됐으나 관찰중이라 대기
 function markLive(id){ try{ sessionStorage.setItem(LIVE_KEY,String(id)); }catch(e){} }
 function clearLive(){ try{ sessionStorage.removeItem(LIVE_KEY); }catch(e){} }
 function isLive(id){ try{ return sessionStorage.getItem(LIVE_KEY)===String(id); }catch(e){ return false; } }
@@ -1113,7 +1119,7 @@ function boot(){
       navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(function(){});
       navigator.serviceWorker.addEventListener('controllerchange',function(){
         if(SW_RELOADED || !SW_HAD_CONTROLLER) return;     // 최초 설치는 리로드하지 않는다
-        /* [D36] 관찰 중이면 화면을 날리지 않는다. 다만 **버리지도 않는다** —
+        /* [D36] 관찰중이면 화면을 날리지 않는다. 다만 **버리지도 않는다** —
            종전에는 여기서 return 하고 끝이라 적용 시점이 영영 오지 않았고,
            관찰자는 계속 옛 판본을 쓰게 됐다. 대기 표시를 남겨
            `endSession` 이 세션을 닫는 즉시 적용한다. */
