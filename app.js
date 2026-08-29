@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.32';
+var APP_VERSION='1.33';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -315,7 +315,12 @@ function memoWarn(){
   el.classList.toggle('pii',bad);
   el.title=bad?'숫자 6자리 이상 — 환자번호·연락처가 아닌지 확인하세요(개인정보 입력 금지)':'';
 }
-var LOCKED=function(){return S&&(S.ctx==='off_view'||S.ctx==='off_ward');};
+/* [D39] 화장실도 **미관찰**이다 — 관찰자는 화장실까지 따라가지 않는다(관찰구역 밖).
+   종전에는 off_view/off_ward 만 잠가서, 환자가 화장실에 있는데도 자세 버튼과
+   움직임상세가 눌려 **보지 않은 행동이 기록**될 수 있었다.
+   `procedure`(처치중)는 **일부러 제외** — 관찰자가 침상 곁에 있어 볼 수 있고,
+   SAP 부록 C.2 가 그 구간을 **노출 창**으로 쓰므로 분모에 남아야 한다. */
+var LOCKED=function(){return S&&(S.ctx==='toilet'||S.ctx==='off_view'||S.ctx==='off_ward');};
 
 /* ───────── 버튼 빌드 ───────── */
 var sc,mc,cc;
@@ -447,7 +452,8 @@ function render(){
   }
   var cb=$('ctxbanner'),lb=$('lockbanner'); cb.className='banner'; lb.className='banner';
   if(S.ctx!=='none'){ cb.className='banner ctx'; cb.textContent='⚠ 맥락: '+koCtx(S.ctx)+' — 관찰 복귀를 상기'; }
-  if(LOCKED()){ lb.className='banner lock'; lb.textContent='🔒 미관찰(상태 입력 잠금) — 관찰 복귀 시 자동 해제'; }
+  if(LOCKED()){ lb.className='banner lock';
+    lb.textContent='🔒 미관찰: '+koCtx(S.ctx)+' — 상태·움직임 입력 잠금 · 관찰 복귀 시 자동 해제'; }
   $('unc').classList.toggle('on',S.unc);
   $('sensor').textContent=S.sensor; $('sensorbtn').classList.toggle('senson',S.sensor==='on'); $('sensorbtn').classList.toggle('senswarn',S.sensor!=='on');
   $('memo').classList.toggle('req',S.unc&&!$('memo').value.trim());
