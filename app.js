@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.36';
+var APP_VERSION='1.37';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -29,7 +29,11 @@ var STATES=[{c:'LIE',k:'누움'},{c:'SIT',k:'앉음'},{c:'STD',k:'일어섬'},{c
    ★ 저장값 `off_view` 는 **지우지 않는다.** resumeSession 이 재개 미관찰 구간을
      `context='off_view'` 로 남기므로(D2) 값을 없애면 그 구간이 갈 곳이 없다.
      v1.36 부터 `off_view` 는 **시스템 생성 전용**(관찰자는 만들 수 없다). */
-var CTX=[{c:'none',k:'관찰 중'},{c:'toilet',k:'화장실'},{c:'procedure',k:'커튼'},{c:'off_ward',k:'병실 밖'}];
+var CTX=[{c:'none',k:'관찰 중'},{c:'toilet',k:'화장실'},{c:'procedure',k:'가림(커튼)'},
+         {c:'off_ward',k:'병실 밖'},{c:'observer_away',k:'관찰자이석'}];
+/* [D43] `가림(커튼)` 은 커튼뿐 아니라 **보호자가 서서 가리는** 경우까지 덮는다.
+   `관찰자이석`(신규 `observer_away`)은 **사유의 주체가 다르다** — 환자를 볼 수 없는 것이
+   아니라 **관찰자가 없는** 것이다. 결측기전(MAR) 점검에서 갈라 봐야 하므로 별도 값으로 둔다. */
 var CTX_SYS={off_view:'재개 미관찰'};        // [D42] 버튼에 없지만 라벨은 필요한 값
 var MOT=[{c:'tremor',k:'떨림'},{c:'brush_repeat',k:'반복상지'},{c:'scratch',k:'긁기'},{c:'eat',k:'식사'},{c:'turn',k:'뒤척임'},{c:'care',k:'관계자개입'},{c:'other',k:'기타'}];
 /* [D7] 전이코드는 4×3=12 전이 모두 FROM→TO 로 통일한다(WLK 포함).
