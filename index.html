@@ -161,6 +161,13 @@
   .mrow button{flex:1;border:1px solid var(--line);background:var(--panel);color:inherit;
     border-radius:10px;padding:11px;font-weight:800;font-size:14px;font-family:inherit;cursor:pointer}
   .mrow button.danger{background:#c62828;border-color:#c62828;color:#fff}
+  /* [D50] 설정 잠금 */
+  .lockerr{margin-top:9px;font-size:12.5px;font-weight:800;color:#c62828}
+  .linkbtn{display:block;width:100%;margin-top:10px;background:none;border:0;color:var(--muted);
+    font:inherit;font-size:12.5px;text-decoration:underline;cursor:pointer;padding:4px}
+  .rccode{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:20px;font-weight:800;
+    letter-spacing:1px;text-align:center;padding:10px 4px;word-break:break-all}
+  .rcwarn{margin-top:10px;font-size:12.5px;line-height:1.5}
   .toast .ico{font-size:20px}.toast .msg{flex:1;font-size:13px;line-height:1.35}.toast .msg b{color:#ffd08a}
   .toast button{background:#ffb454;color:#3a2600;border:0;border-radius:8px;padding:7px 11px;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit}
 
@@ -412,6 +419,24 @@
         <button class="big" id="saveCfg" type="button">저장</button>
         <button class="big ghost" id="closeCfg" type="button" style="margin-top:8px">닫기</button>
         <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:12px">
+          <!-- [D50] 설정 잠금 -->
+          <div class="rowlbl">설정 잠금</div>
+          <p class="hint">이 화면에는 <b>사전배정 익명ID 목록</b>과 <b>전체 데이터 삭제</b> 가 있습니다. 잠가 두면 다른 사람이 실수로 열지 못합니다.</p>
+          <p class="senshint">⚠ <b>오조작 방지용</b>입니다 — 보안 장치가 아닙니다. 폰이 잠금 해제된 채 넘어가면 브라우저 저장소를 직접 읽어 우회할 수 있습니다. <b>진짜 보호는 폰 화면잠금과 기기 관리</b>입니다.</p>
+          <div id="lockOff">
+            <label class="f">새 비밀번호 (4자 이상)</label>
+            <input class="t" id="cfg_pw1" type="password" autocomplete="new-password" spellcheck="false">
+            <label class="f">한 번 더</label>
+            <input class="t" id="cfg_pw2" type="password" autocomplete="new-password" spellcheck="false">
+            <button class="big" id="lockSetBtn" type="button" style="margin-top:8px">잠금 설정</button>
+          </div>
+          <div id="lockOn" class="hidden">
+            <p class="hint"><b>잠금 켜짐</b> — 설정을 열 때 비밀번호를 묻습니다(한 번 풀면 5분간 유지, 새로고침하면 초기화).</p>
+            <button class="big ghost" id="lockChangeBtn" type="button">비밀번호 변경</button>
+            <button class="big ghost" id="lockClearBtn" type="button" style="margin-top:8px">잠금 해제</button>
+          </div>
+        </div>
+        <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:12px">
           <div class="rowlbl">현재 동기 상태</div>
           <p class="hint" id="cfgSyncInfo">—</p>
           <button class="big ghost" id="resyncBtn" type="button">지금 재동기</button>
@@ -426,9 +451,35 @@
 
   </div>
   <!-- [D20] 버전 표기는 app.js 의 APP_VERSION 에서 주입된다(정적 텍스트는 스크립트 미실행 시 폴백) -->
-  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.41</span> (PWA) · <span id="verMode">—</span></div>
+  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.42</span> (PWA) · <span id="verMode">—</span></div>
 </div>
 
+<div class="modal hidden" id="lockModal">
+  <div class="mbox">
+    <div class="mttl">설정 잠금</div>
+    <div class="mbody">
+      <div id="lockMsg">비밀번호를 입력하세요.</div>
+      <input class="t" id="lockPw" type="password" autocomplete="off" spellcheck="false" style="margin-top:10px">
+      <div class="lockerr hidden" id="lockErr"></div>
+    </div>
+    <div class="mrow">
+      <button type="button" id="lockCancel">취소</button>
+      <button type="button" id="lockOk" class="danger">확인</button>
+    </div>
+    <button type="button" class="linkbtn" id="lockForgot">비밀번호를 잊었어요 — 복구 코드 입력</button>
+  </div>
+</div>
+<div class="modal hidden" id="rcModal">
+  <div class="mbox">
+    <div class="mttl">복구 코드 — 지금 적어 두세요</div>
+    <div class="mbody">
+      <div class="rccode" id="rcCode">—</div>
+      <div class="rcwarn">이 코드는 <b>다시 볼 수 없습니다.</b> 비밀번호를 잊으면 이 코드로만 풀 수 있습니다.<br><br>
+      ⚠ 브라우저 저장소를 비우면 잠금과 함께 <b>관찰 기록도 사라집니다</b> — 그건 복구 수단이 아닙니다.</div>
+    </div>
+    <div class="mrow"><button type="button" id="rcOk" class="danger">적어 뒀습니다</button></div>
+  </div>
+</div>
 <div class="modal hidden" id="undoModal">
   <div class="mbox">
     <div class="mttl">실행취소 — 아래 기록을 지웁니다</div>

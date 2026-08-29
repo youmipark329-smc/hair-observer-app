@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.41';
+var APP_VERSION='1.42';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -239,7 +239,7 @@ function idbDel(store,key){ return new Promise(function(res,rej){ var tx=DB.tran
 function idbClear(store){ return new Promise(function(res,rej){ var tx=DB.transaction(store,'readwrite'); tx.objectStore(store).clear(); tx.oncomplete=function(){res();}; tx.onerror=function(){rej(tx.error);}; }); }
 
 /* ───────── 설정 ───────── */
-var CFG={endpoint:'',obs:'',set:'',theme:'system',roster:[]};
+var CFG={endpoint:'',obs:'',set:'',theme:'system',roster:[],lock:null};   // [D50] lock=설정 잠금
 function applyTheme(){ var t=CFG.theme; if(t==='system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme',t); }
 function loadCfg(){ return idbGet('meta','cfg').then(function(v){ if(v&&v.val) CFG=Object.assign(CFG,v.val);
   CFG.set=normWard(CFG.set);                              // [D24] 구형 자유입력 값을 정리한다
@@ -1002,10 +1002,130 @@ function resumeSession(sess){
               .catch(function(e){ saveFail(e); show('codeScreen'); render(); });
 }
 
+
+/* ───────── 설정 잠금 [D50] ─────────
+   ⚠ 이것은 **오조작·호기심 차단**이지 보안이 아니다. 서버 없는 클라이언트 전용
+   PWA 라, 폰이 잠금 해제된 채 넘어가면 브라우저 저장소를 직접 읽어 우회할 수 있다.
+   그래도 잠그는 이유 — 설정 화면에 **사전배정 익명ID 목록**과 **[전체 데이터 삭제]**
+   가 있다. 실제 보호는 폰 잠금과 관리 책임이며, 화면에도 그렇게 적어 둔다.
+
+   평문은 저장하지 않는다(연구자가 다른 곳에서 쓰는 암호를 그대로 남기지 않기 위해).
+   PBKDF2-SHA256 해시만 둔다. */
+var LOCK_ITER=150000;
+var LOCK_GRACE_MS=5*60*1000;   // 설치·점검 때 설정을 여러 번 여닫으므로. 새로고침하면 초기화.
+var lockOkUntil=0, lockMode='', lockRcMode=false;
+
+function cryptoOK(){
+  return !!(window.crypto && crypto.subtle && crypto.subtle.importKey && crypto.getRandomValues);
+}
+function b64e(buf){ var b=new Uint8Array(buf),s='',i; for(i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return btoa(s); }
+function b64d(s){ var t=atob(s),a=new Uint8Array(t.length),i; for(i=0;i<t.length;i++) a[i]=t.charCodeAt(i); return a; }
+function pwHash(pw,saltB64,iter){
+  return crypto.subtle.importKey('raw',new TextEncoder().encode(pw),{name:'PBKDF2'},false,['deriveBits'])
+    .then(function(k){ return crypto.subtle.deriveBits(
+      {name:'PBKDF2',salt:b64d(saltB64),iterations:iter||LOCK_ITER,hash:'SHA-256'},k,256); })
+    .then(b64e);
+}
+function lockIsSet(){ return !!(CFG.lock && CFG.lock.hash && CFG.lock.salt); }
+function lockNeeded(){ return lockIsSet() && Date.now()>lockOkUntil; }
+/* 복구 코드: 헷갈리는 글자(0/O/1/I/L)를 뺀 알파벳 · 16자 4묶음 */
+function makeRC(){
+  var A='ABCDEFGHJKMNPQRSTUVWXYZ23456789', r=crypto.getRandomValues(new Uint8Array(16)), o=[], i;
+  for(i=0;i<16;i++){ o.push(A.charAt(r[i]%A.length)); if(i%4===3&&i<15) o.push('-'); }
+  return o.join('');
+}
+function normRC(s){ return String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+
+function paintLock(){
+  var on=lockIsSet();
+  $('lockOn').classList.toggle('hidden',!on);
+  $('lockOff').classList.toggle('hidden',on);
+  $('cfg_pw1').value=''; $('cfg_pw2').value='';
+}
+/* 잠금 확인 모달. mode: 'open'(설정 열기) · 'change'(변경) · 'clear'(해제) */
+function askUnlock(mode){
+  lockMode=mode; lockRcMode=false;
+  $('lockPw').type='password'; $('lockPw').value='';
+  $('lockMsg').textContent=(mode==='open'?'설정을 열려면 비밀번호를 입력하세요.':
+    mode==='change'?'비밀번호를 바꾸려면 현재 비밀번호를 입력하세요.':
+    '잠금을 해제하려면 현재 비밀번호를 입력하세요.');
+  $('lockErr').classList.add('hidden');
+  $('lockForgot').classList.remove('hidden');
+  $('lockModal').classList.remove('hidden');
+  setTimeout(function(){ try{ $('lockPw').focus(); }catch(e){} },50);
+}
+function lockForgot(){
+  lockRcMode=true;
+  $('lockPw').type='text'; $('lockPw').value='';
+  $('lockMsg').textContent='복구 코드를 입력하세요(잠금 설정 때 적어 둔 16자).';
+  $('lockErr').classList.add('hidden');
+  $('lockForgot').classList.add('hidden');
+  setTimeout(function(){ try{ $('lockPw').focus(); }catch(e){} },50);
+}
+function lockFail(msg){ $('lockErr').textContent=msg; $('lockErr').classList.remove('hidden'); $('lockPw').value=''; }
+function lockTry(){
+  var v=$('lockPw').value||'';
+  if(!v){ lockFail('입력해 주세요.'); return; }
+  var L=CFG.lock||{};
+  if(lockRcMode){
+    pwHash(normRC(v),L.rcSalt,L.iter).then(function(h){
+      if(h!==L.rcHash){ lockFail('복구 코드가 맞지 않습니다.'); return; }
+      /* 복구 코드는 **비밀번호만** 지운다 — 관찰 기록은 건드리지 않는다. */
+      CFG.lock=null;
+      saveCfg().catch(saveFail).then(function(){
+        $('lockModal').classList.add('hidden');
+        alert('복구 코드로 잠금을 해제했습니다.\n\n관찰 기록은 그대로입니다. 설정에서 비밀번호를 새로 거세요.');
+        lockOkUntil=Date.now()+LOCK_GRACE_MS; reallyOpenSettings();
+      });
+    }).catch(function(e){ lockFail('확인 중 오류: '+e); });
+    return;
+  }
+  pwHash(v,L.salt,L.iter).then(function(h){
+    if(h!==L.hash){ lockFail('비밀번호가 맞지 않습니다.'); return; }
+    $('lockModal').classList.add('hidden');
+    lockOkUntil=Date.now()+LOCK_GRACE_MS;
+    if(lockMode==='clear'){
+      CFG.lock=null;
+      saveCfg().catch(saveFail).then(function(){ paintLock(); alert('설정 잠금을 해제했습니다.'); });
+    }else if(lockMode==='change'){
+      CFG.lock=null; paintLock();     // 새 비밀번호 입력칸을 연다(아직 저장 전)
+      alert('새 비밀번호를 입력하고 [잠금 설정] 을 누르세요.');
+    }else{ reallyOpenSettings(); }
+  }).catch(function(e){ lockFail('확인 중 오류: '+e); });
+}
+function lockSetNew(){
+  if(!cryptoOK()){
+    alert('이 브라우저에서는 잠금을 걸 수 없습니다.\n\n'+
+          '비밀번호 해시에 필요한 WebCrypto 가 없습니다(보안 연결이 아닌 주소로 열었을 때 그렇습니다).\n'+
+          'https:// 주소로 다시 여세요. — 잠금은 걸리지 않았습니다.');
+    return;
+  }
+  var a=$('cfg_pw1').value||'', b=$('cfg_pw2').value||'';
+  if(a.length<4){ alert('비밀번호는 4자 이상으로 정하세요.'); return; }
+  if(a!==b){ alert('두 입력이 다릅니다.'); return; }
+  var salt=b64e(crypto.getRandomValues(new Uint8Array(16)));
+  var rcSalt=b64e(crypto.getRandomValues(new Uint8Array(16)));
+  var rc=makeRC();
+  Promise.all([pwHash(a,salt,LOCK_ITER),pwHash(normRC(rc),rcSalt,LOCK_ITER)]).then(function(hs){
+    CFG.lock={salt:salt,hash:hs[0],rcSalt:rcSalt,rcHash:hs[1],iter:LOCK_ITER,at:Date.now()};
+    return saveCfg().then(function(){
+      paintLock();
+      $('rcCode').textContent=rc;
+      $('rcModal').classList.remove('hidden');
+    });
+  }).catch(function(e){ alert('잠금 설정 실패: '+e+'\n\n잠금은 걸리지 않았습니다.'); });
+}
+
 /* ───────── 설정 화면 ───────── */
 function openSettings(){
+  // [D50] 잠겨 있으면 확인부터. 유예(5분) 안이면 바로 연다.
+  if(lockNeeded()){ askUnlock('open'); return; }
+  reallyOpenSettings();
+}
+function reallyOpenSettings(){
   $('cfg_time').value=CFG.endpoint||''; setObsSel('cfg_obs',CFG.obs); setWard('cfg_set',CFG.set); $('cfg_theme').value=CFG.theme||'system';
   $('cfg_roster').value=(CFG.roster||[]).join('\n');       // [D23]
+  paintLock();                                        // [D50]
   paintSync(); show('settingsScreen');
 }
 function commitCfg(){
@@ -1059,6 +1179,15 @@ function bind(){
   $('sync').addEventListener('click',function(){Clock.sync();});
   $('sync').addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){Clock.sync();e.preventDefault();}});
   $('gear').addEventListener('click',openSettings);
+  /* [D50] 설정 잠금 */
+  $('lockOk').addEventListener('click',lockTry);
+  $('lockCancel').addEventListener('click',function(){ $('lockModal').classList.add('hidden'); });
+  $('lockForgot').addEventListener('click',lockForgot);
+  $('lockPw').addEventListener('keydown',function(e){ if(e.key==='Enter'){ lockTry(); e.preventDefault(); } });
+  $('rcOk').addEventListener('click',function(){ $('rcModal').classList.add('hidden'); });
+  $('lockSetBtn').addEventListener('click',lockSetNew);
+  $('lockChangeBtn').addEventListener('click',function(){ askUnlock('change'); });
+  $('lockClearBtn').addEventListener('click',function(){ askUnlock('clear'); });
   // [D2] 요약화면 '코딩 계속' 도 재개 경로를 그대로 탄다(직전 bout 보존 + 미관찰 gap 기록)
   $('resume').addEventListener('click',function(){ if(!S)return; resumeSession(S); });
   $('saveCsv').addEventListener('click',exportCurrent);
