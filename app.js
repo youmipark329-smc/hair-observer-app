@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.39';
+var APP_VERSION='1.40';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -358,11 +358,14 @@ function buildButtons(){
 /* ───────── 코딩 동작 ───────── */
 function tapState(c){
   if(!S||S.ended||LOCKED()||c===S.cur)return;
-  var ts=Clock.now(), dev=Clock.deviceNow(), nt=memoVal(), sn=snapT();
+  /* [D46] push 시점에 memoVal() 을 읽지 않는다 — 메모는 **소급 전용**이다.
+     종전에는 「미리 쓴 메모가 다음 기록에 붙는」 경로가 남아 있어, `기타` 메모를 쓴 뒤
+     자세 버튼을 누르면 같은 문장이 자세 행에도 **복제**됐다. */
+  var ts=Clock.now(), dev=Clock.deviceNow(), sn=snapT();
   // [D3] 닫히는 bout 은 '열릴 때' 받아둔 rid 를 그대로 쓴다(새로 뽑지 않는다).
   // [D8] sensor 는 push 시점 스냅샷 — 세션 전역값을 export 때 소급 적용하지 않는다.
   S.bouts.push({rid:S.boutRid,rid2:S.boutRid2,state:S.cur,enter:S.boutEnter,isBed:S.boutIsBed,start:S.boutStart,startDev:S.boutStartDev,
-    end:ts,endDev:dev,dur:Math.max(0,(ts-S.boutStart)/1000),ctx:S.ctx,unc:S.unc,note:nt,
+    end:ts,endDev:dev,dur:Math.max(0,(ts-S.boutStart)/1000),ctx:S.ctx,unc:S.unc,note:'',
     offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});
   /* [D32] bed-exit = from∈{LIE,SIT} && to∈{STD,WLK}. 4전이뿐이다:
      LIE→STD · LIE→WLK · SIT→STD · SIT→WLK.
@@ -371,7 +374,7 @@ function tapState(c){
      걷는다는 것은 이미 섰다는 뜻이므로 그 이벤트를 잃지 않는다. */
   var isBed=((S.cur==='LIE'||S.cur==='SIT')&&(c==='STD'||c==='WLK'));
   S.log.push({t:clock(ts),kind:'transition',code:transCode(S.cur,c),bed:isBed,dur:Math.max(0,(ts-S.boutStart)/1000),from:S.cur});
-  noteTarget=null;                                   // [D45] 다른 기록을 누르면 대상 해제
+  noteTarget=S.bouts[S.bouts.length-1];              // [D46] 메모는 방금 닫힌 이 행에 붙는다
   S.cur=c; S.boutStart=ts; S.boutStartDev=dev;
   S.boutRid='r'+(++S.seq); S.boutRid2='r'+(++S.seq);   // [D3][D9] 전이행·상태행 몫을 함께 부여
   S.boutEnter=S.log[S.log.length-1].code; S.boutIsBed=isBed; S.reminded=false;
@@ -379,21 +382,20 @@ function tapState(c){
      순간 이미 해소된 것이므로 여기서 끈다. 종전에는 끄는 경로가 없어 켜 두고 잊으면
      이후 전 행이 uncertain=1 로 나갔다. 여전히 애매하면 다시 누르면 된다. */
   S.unc=false;
-  if(nt)$('memo').value=''; persist(); render();
+  $('memo').value=''; persist(); render();        // [D46] 새 기록 → 메모칸 비움
 }
 function tapMotion(m,b){
   if(!S||S.ended||LOCKED()||S.cur==='WLK')return;
-  var ts=Clock.now(), ibm=(S.cur==='LIE'&&m.c==='turn'), nt=memoVal(), sn=snapT();
-  S.motions.push({rid:'r'+(++S.seq),t:ts,tDev:Clock.deviceNow(),state:S.cur,code:m.c,ibm:ibm,unc:S.unc,note:nt,
+  var ts=Clock.now(), ibm=(S.cur==='LIE'&&m.c==='turn'), sn=snapT();   // [D46] 소급 전용
+  S.motions.push({rid:'r'+(++S.seq),t:ts,tDev:Clock.deviceNow(),state:S.cur,code:m.c,ibm:ibm,unc:S.unc,note:'',
     offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});   // [D8] 스냅샷
   S.log.push({t:clock(ts),kind:'motion',code:'motion:'+m.c+(ibm?' (in_bed_move=1)':''),bed:false});
   b.classList.add('on'); setTimeout(function(){b.classList.remove('on');},420);
-  if(nt)$('memo').value='';
-  /* [D45] `기타` 는 사후 코드북 매핑이 전제라 **메모가 없으면 쓸모가 없다.**
-     시각은 이미 확정됐으니(위 push), 이제 메모를 받아 그 행에 소급해 채운다. */
-  if(m.c==='other'){ noteTarget=S.motions[S.motions.length-1]; $('memo').value=nt||'';
-                     persist(); render(); $('memo').focus(); return; }
-  noteTarget=null; persist(); render();
+  /* [D45/D46] 메모는 **방금 남긴 이 행**에 소급해 붙는다. 시각은 위 push 로 이미 확정됐다.
+     `기타` 는 사후 코드북 매핑이 전제라 메모가 없으면 쓸모가 없으므로 칸을 열어 준다. */
+  $('memo').value=''; noteTarget=S.motions[S.motions.length-1];
+  persist(); render();
+  if(m.c==='other') $('memo').focus();
 }
 function tapContext(x){
   if(!S||S.ended)return;
@@ -404,6 +406,7 @@ function tapContext(x){
      [D33] 판정 기준을 **탭한 칩(x.c)** 이 아니라 **결과 맥락(newc)** 으로 바꿨다 —
      종전에는 화장실을 다시 눌러 **해제**할 때(= 복귀)도 x.c 가 'toilet' 이라
      리마인더가 떴다. 조건이 SIT 까지 넓어지면서 그 오작동이 훨씬 자주 보이게 된다. */
+  noteTarget=null; $('memo').value='';                // [D46] 맥락 전환은 메모 대상이 아니다
   var leaving=(newc==='toilet'||newc==='off_ward');   // [D42] off_view 는 버튼에서 삭제
   if(leaving&&(S.cur==='LIE'||S.cur==='SIT')&&!S.reminded){ showToast(); S.reminded=true; }
   // [D1] 이 구간이 그대로 CSV 의 code='context' 행 1개가 된다 → rid·시각·스냅샷을 모두 갖춘다.
@@ -609,7 +612,7 @@ function endSession(){
   if(!S.ended){
     var ts=Clock.now(), sn=snapT();
     S.bouts.push({rid:S.boutRid,rid2:S.boutRid2,state:S.cur,enter:S.boutEnter,isBed:S.boutIsBed,start:S.boutStart,startDev:S.boutStartDev,
-      end:ts,endDev:Clock.deviceNow(),dur:Math.max(0,(ts-S.boutStart)/1000),ctx:S.ctx,unc:S.unc,note:memoVal(),
+      end:ts,endDev:Clock.deviceNow(),dur:Math.max(0,(ts-S.boutStart)/1000),ctx:S.ctx,unc:S.unc,note:'',   // [D46] 소급 전용
       offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});                       // [D3][D8][D9]
     S.ctxBouts.push({rid:S.ctxRid,ctx:S.ctx,start:S.ctxStart,end:ts,dur:Math.max(0,(ts-S.ctxStart)/1000),
       offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});                       // [D1]
