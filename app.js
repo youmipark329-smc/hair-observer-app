@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.27';
+var APP_VERSION='1.28';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -394,6 +394,12 @@ function tapSyncMarker(){
   var b=$('markerBtn'); b.classList.add('flash'); setTimeout(function(){b.classList.remove('flash');},450);
   persist(); render();
 }
+function showResumeToast(pid){
+  var t=$('rtoast'); if(!t) return;
+  var m=t.querySelector('.msg'); if(m) m.innerHTML='<b>이어서 기록합니다</b> — '+esc(pid)+' · 새로고침 전 상태 그대로입니다.';
+  t.classList.add('show'); clearTimeout(showResumeToast._h);
+  showResumeToast._h=setTimeout(function(){ t.classList.remove('show'); },5000);
+}
 function showToast(){var t=$('toast');t.classList.add('show');clearTimeout(showToast._h);showToast._h=setTimeout(function(){t.classList.remove('show');},6000);}
 function doUndo(){
   if(!S||S.ended||!S.log.length)return;
@@ -642,7 +648,12 @@ function openGate(list){
   var card=$('openCard'); if(!card) return;
   var open=null;
   for(var i=0;i<list.length;i++){ if(!list[i].ended){ open=list[i]; break; } }
-  if(!open){ card.classList.add('hidden'); $('startBtn').disabled=false; return; }
+  if(!open){ card.classList.add('hidden'); $('startBtn').disabled=false; clearLive(); return; }
+  /* [D34] **새로고침**이면 게이트를 띄우지 않고 바로 이어서 기록한다. 기록 중 화면이
+     등록화면으로 되돌아가면 관찰자가 자리를 잃고, 그 사이 bed-exit(1차 종료점)을 놓친다.
+     앱을 껐다 켠 경우(sessionStorage 소실)에는 게이트를 그대로 띄운다 — 다음 환자를
+     이전 세션에 잘못 이어붙이는 것을 계속 막아야 한다. */
+  if(isLive(open.id)){ card.classList.add('hidden'); resumeSession(open); showResumeToast(open.pid); return; }
   $('openMeta').textContent=open.pid+' · '+open.obs+(open.set?(' · '+open.set):'')+
     ' · '+dateStr(open.createdDevice)+' '+clock(open.createdDevice)+' 시작';
   card.classList.remove('hidden');
@@ -651,6 +662,15 @@ function openGate(list){
   $('openIgnore').onclick=function(){ card.classList.add('hidden'); $('startBtn').disabled=false; };
 }
 function esc(t){return String(t==null?'':t).replace(/[<>&]/g,function(c){return{'<':'&lt;','>':'&gt;','&':'&amp;'}[c];});}
+
+/* [D34] 「새로고침」 과 「앱을 껐다 다시 켬」 을 가르는 표식.
+   sessionStorage 는 **새로고침에는 살아남고 탭/앱을 닫으면 지워진다** — 정확히 이 둘을
+   구분한다. 시간 기준(예: 5분 이내면 재개)은 근사치일 뿐이고, 관찰자가 세션을 끝내지 않은 채
+   다음 환자로 이동한 경우를 잘못 이어붙일 수 있다. */
+var LIVE_KEY='hair_live';
+function markLive(id){ try{ sessionStorage.setItem(LIVE_KEY,String(id)); }catch(e){} }
+function clearLive(){ try{ sessionStorage.removeItem(LIVE_KEY); }catch(e){} }
+function isLive(id){ try{ return sessionStorage.getItem(LIVE_KEY)===String(id); }catch(e){ return false; } }
 
 /* ───────── 세션 시작/재개 ───────── */
 /* ───────── [D23] 사전배정 익명ID 목록 ─────────
@@ -824,6 +844,7 @@ function lastKnownDev(sess){
    - [마지막 시각, 재개) 구간은 code='context' / context='off_view' 로 남긴다 → 유효 커버리지에서 정직하게 빠진다 */
 function resumeSession(sess){
   S=migrate(sess);
+  markLive(S.id);                                    // [D34] 이후 새로고침은 자동 이어하기
   var last=lastKnownTs(S), lastDev=lastKnownDev(S), devNow=Clock.deviceNow();
   var elapsed=(lastDev>0&&devNow>lastDev)?(devNow-lastDev):0;
   /* [D2] ★ 예전에는 `if(last>ts) last=ts;` 로 시계 역전을 '방어'했는데, 그러면
@@ -919,7 +940,9 @@ function bind(){
   $('markerBtn').addEventListener('click',tapSyncMarker);
   $('undo').addEventListener('click',doUndo);
   $('undo').addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){doUndo();e.preventDefault();}});
-  $('unc').addEventListener('click',function(){if(!S||S.ended)return;S.unc=!S.unc;if(S.unc)S.uncCount++;persist();render();$('memo').focus();});
+  $('unc').addEventListener('click',function(){if(!S||S.ended)return;S.unc=!S.unc;if(S.unc)S.uncCount++;markLive(S.id);                                     // [D34]
+  clearLive();                                       // [D34] 종료하면 자동재개 안 함
+  persist();render();$('memo').focus();});
   // [D8] 센서 토글을 로그에 남겨 undo 가능하게 한다(값은 이후 push 되는 행부터 반영).
   $('sensorbtn').addEventListener('click',function(){
     if(!S||S.ended)return;
