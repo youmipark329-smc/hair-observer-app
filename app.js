@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.26';
+var APP_VERSION='1.27';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -28,7 +28,10 @@ var CTX=[{c:'none',k:'관찰 중'},{c:'toilet',k:'화장실'},{c:'procedure',k:'
 var MOT=[{c:'tremor',k:'떨림'},{c:'brush_repeat',k:'반복상지'},{c:'scratch',k:'긁기'},{c:'eat',k:'식사'},{c:'turn',k:'뒤척임'},{c:'care',k:'관계자개입'},{c:'other',k:'기타'}];
 /* [D7] 전이코드는 4×3=12 전이 모두 FROM→TO 로 통일한다(WLK 포함).
    예전처럼 WLK 가 끼면 도착코드로 뭉개면 LIE→WLK 가 'WLK' 로 사라져 이중검증이 불가능해진다.
-   bed-exit 판정은 transCode 가 아니라 (from==='LIE' && to∈{SIT,STD}) 로만 한다(io_load.py:576 과 동일 규칙). */
+   bed-exit 판정은 transCode 가 아니라 (from∈{LIE,SIT} && to∈{STD,WLK}) 로만 한다(io_load.py 와 동일 규칙).
+   [D32] 2026-08-28 규칙 교체. 종전 (from==='LIE' && to∈{SIT,STD}) 는 **침상 내 앉기(TV·식사)를
+   bed-exit 으로 계수**했다. 다인실이라 앉을 자리가 침대뿐이고 조기거동 대상이 아니므로
+   SIT ≡ 침대 위 앉음이며, 침대를 실제로 벗어나는 순간은 STD 또는 WLK 도달이다. */
 function transCode(from,to){ return from+'→'+to; }
 /* [D21] 익명ID 정본 형식 — ㉠ 연결로그 프리필과 같은 형식이어야 한다.
    자유입력을 허용하면 P16E-001 / p-16e-001 / P-16E-01 이 전부 통과하고,
@@ -338,8 +341,12 @@ function tapState(c){
   S.bouts.push({rid:S.boutRid,rid2:S.boutRid2,state:S.cur,enter:S.boutEnter,isBed:S.boutIsBed,start:S.boutStart,startDev:S.boutStartDev,
     end:ts,endDev:dev,dur:Math.max(0,(ts-S.boutStart)/1000),ctx:S.ctx,unc:S.unc,note:nt,
     offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});
-  // [D7] bed-exit 은 오직 LIE→SIT/STD. LIE→WLK 는 막지 않고 전이로 남기되 bed_exit=0.
-  var isBed=(S.cur==='LIE'&&(c==='SIT'||c==='STD'));
+  /* [D32] bed-exit = from∈{LIE,SIT} && to∈{STD,WLK}. 4전이뿐이다:
+     LIE→STD · LIE→WLK · SIT→STD · SIT→WLK.
+     LIE→SIT(침상에서 일어나 앉기)은 **bed-exit 이 아니다** — 아직 침대 위다.
+     →WLK 를 넣는 이유: 일어서자마자 걸으면 관찰자가 STD 를 건너뛰고 WLK 를 누른다.
+     걷는다는 것은 이미 섰다는 뜻이므로 그 이벤트를 잃지 않는다. */
+  var isBed=((S.cur==='LIE'||S.cur==='SIT')&&(c==='STD'||c==='WLK'));
   S.log.push({t:clock(ts),kind:'transition',code:transCode(S.cur,c),bed:isBed,dur:Math.max(0,(ts-S.boutStart)/1000),from:S.cur});
   S.cur=c; S.boutStart=ts; S.boutStartDev=dev;
   S.boutRid='r'+(++S.seq); S.boutRid2='r'+(++S.seq);   // [D3][D9] 전이행·상태행 몫을 함께 부여
@@ -362,9 +369,15 @@ function tapMotion(m,b){
 }
 function tapContext(x){
   if(!S||S.ended)return;
-  var leaving=(x.c==='toilet'||x.c==='off_view'||x.c==='off_ward');
-  if(leaving&&S.cur==='LIE'&&!S.reminded){ showToast(); S.reminded=true; }
   var newc=(x.c===S.ctx)?'none':x.c, ts=Clock.now(), sn=snapT();
+  /* [D32] 리마인더는 **침대 위 자세(LIE·SIT)** 에서 뜬다. 신규 규칙의 bed-exit 은
+     LIE/SIT → STD/WLK 이므로, 침대에 앉아 있다 화장실로 나가는 경로(SIT→STD)가
+     오히려 전형적이다. 종전처럼 LIE 에서만 띄우면 그 경로의 1차 종료점이 유실된다.
+     [D33] 판정 기준을 **탭한 칩(x.c)** 이 아니라 **결과 맥락(newc)** 으로 바꿨다 —
+     종전에는 화장실을 다시 눌러 **해제**할 때(= 복귀)도 x.c 가 'toilet' 이라
+     리마인더가 떴다. 조건이 SIT 까지 넓어지면서 그 오작동이 훨씬 자주 보이게 된다. */
+  var leaving=(newc==='toilet'||newc==='off_view'||newc==='off_ward');
+  if(leaving&&(S.cur==='LIE'||S.cur==='SIT')&&!S.reminded){ showToast(); S.reminded=true; }
   // [D1] 이 구간이 그대로 CSV 의 code='context' 행 1개가 된다 → rid·시각·스냅샷을 모두 갖춘다.
   S.ctxBouts.push({rid:S.ctxRid,ctx:S.ctx,start:S.ctxStart,end:ts,dur:Math.max(0,(ts-S.ctxStart)/1000),
     offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});
