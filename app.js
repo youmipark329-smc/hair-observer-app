@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.40';
+var APP_VERSION='1.41';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -261,7 +261,7 @@ function newSession(meta){
        [D9] 한 bout 은 전이행+상태행 최대 2행으로 나가므로 rid 를 2개 예약한다.
        열린 채로 export 해도 같은 값이 나오고, undo 해도 번호를 되돌리지 않아 영구 유일하다. */
     seq:3, boutRid:'r1', boutRid2:'r2', ctxRid:'r3',
-    bouts:[], ctxStart:ts, ctxBouts:[], motions:[], markers:[], log:[], undoCount:0, uncCount:0
+    bouts:[], ctxStart:ts, ctxBouts:[], motions:[], markers:[], undos:[], log:[], undoCount:0, uncCount:0
   };
 }
 /* [D2][D3] 구형(이전 버전) 세션을 신설 필드로 올린다.
@@ -278,6 +278,7 @@ function migrate(sess){
   if(sess.dual!==1) sess.dual=0;                       // [D21] 구형 세션은 단독 관찰로 본다
   if(!sess.bouts) sess.bouts=[]; if(!sess.ctxBouts) sess.ctxBouts=[];
   if(!sess.motions) sess.motions=[]; if(!sess.markers) sess.markers=[]; if(!sess.log) sess.log=[];
+  if(!sess.undos) sess.undos=[];                     // [D47] 구형 세션 보정
   return sess;
 }
 /* [D4] 치명 경고 배너 — 지워지지 않는다(닫기 버튼 없음). 모든 화면 위에 고정되며
@@ -432,11 +433,29 @@ function showResumeToast(pid){
   showResumeToast._h=setTimeout(function(){ t.classList.remove('show'); },5000);
 }
 function showToast(){var t=$('toast');t.classList.add('show');clearTimeout(showToast._h);showToast._h=setTimeout(function(){t.classList.remove('show');},6000);}
+/* [D47] 무엇이 지워지는지 보여주고 확인받는다. 자세 버튼이 크고 붙어 있어 오탭이 나는데,
+   실행취소 자체가 오탭이면 **1차 종료점이 흔적 없이 사라진다**. */
+function askUndo(){
+  if(!S||S.ended||!S.log.length)return;
+  var e=S.log[S.log.length-1];
+  if(e.kind==='resume'){ showFatalBanner('세션 재개 표시는 되돌릴 수 없습니다 — 앱이 꺼져 있던 '+
+      '구간을 관찰한 것으로 되살릴 수는 없기 때문입니다.'); return; }
+  $('undoWhat').innerHTML='<div class="utime">'+esc(e.t)+'</div>'+
+    '<div class="ucode">'+esc(e.code)+'</div>'+
+    (e.bed?'<div class="ubed">\u26a0 bed-exit — <b>1차 종료점</b>입니다</div>':'');
+  $('undoModal').classList.remove('hidden');
+}
 function doUndo(){
+  $('undoModal').classList.add('hidden');
   if(!S||S.ended||!S.log.length)return;
   // [D2] 세션 재개 마커는 되돌릴 수 없다 — 미관찰 구간을 '관찰한 것'으로 되살릴 수는 없기 때문.
   if(S.log[S.log.length-1].kind==='resume') return;
   var e=S.log.pop(); S.undoCount++;
+  /* [D47] 감사행 — 지운 사실과 대상을 CSV 에 남긴다(스펙 4.6/8).
+     26컬럼을 지키려고 note 의 고정 토큰을 쓴다(로더가 is_undo/undo_target 으로 뽑는다). */
+  var uts=Clock.now(), usn=snapT();
+  S.undos.push({rid:'r'+(++S.seq),t:uts,tDev:Clock.deviceNow(),
+    target:e.code,offset:usn.offset,rtt:usn.rtt,flag:usn.flag,sensor:S.sensor});
   /* [D3] S.seq 는 되돌리지 않는다. 되돌리면 이미 export 된 record_id 와 충돌하므로,
      번호를 소비된 채로 두어 영구 유일성을 지킨다(중간에 번호 구멍이 생겨도 무방). */
   /* [D31] 되돌린 행이 싣고 간 불확실을 되살린다 — 안 하면 실행취소 뒤 버튼 표시가
@@ -592,6 +611,14 @@ function sessRows(sess,includeHead,nowTs){
       'motion',0,'',m.ibm?1:0,senOut(m),m.unc?1:0,'0.0',m.note||'',sess.enroll,sess.set||'',m.code,
       isoMs(m.t),isoMs(m.t),offOut(m),m.flag||'',sess.id,sess.serial||'',
       APP_VERSION,rttOut(m),sess.dual]);
+  });
+  /* [D47] 실행취소 감사행 — code='undo' 순간행. 지운 대상은 note 의 고정 토큰에 싣는다.
+     로더가 is_undo/undo_target 으로 뽑은 뒤 자유텍스트는 기존대로 폐기한다. */
+  (sess.undos||[]).forEach(function(u){
+    out.push([rid(u.rid),sess.obs,sess.pid,dateStr(u.t),clock(u.t),clock(u.t),
+      'undo',0,'',0,senOut(u),0,'0.0','__undo__:'+(u.target||''),sess.enroll,sess.set||'','',
+      isoMs(u.t),isoMs(u.t),offOut(u),u.flag||'',sess.id,sess.serial||'',
+      APP_VERSION,rttOut(u),sess.dual]);
   });
   (sess.markers||[]).forEach(function(k){
     out.push([rid(k.rid),sess.obs,sess.pid,dateStr(k.t),clock(k.t),clock(k.t),
@@ -1011,8 +1038,10 @@ function bind(){
   $('startBtn').addEventListener('click',startSession);
   $('endbtn').addEventListener('click',endSession);
   $('markerBtn').addEventListener('click',tapSyncMarker);
-  $('undo').addEventListener('click',doUndo);
-  $('undo').addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){doUndo();e.preventDefault();}});
+  $('undo').addEventListener('click',askUndo);        // [D47] 확인 팝업 경유
+  $('undo').addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){askUndo();e.preventDefault();}});
+  $('undoOk').addEventListener('click',doUndo);
+  $('undoCancel').addEventListener('click',function(){ $('undoModal').classList.add('hidden'); });
   /* [D45] `불확실` 버튼 삭제. 대신 메모 입력이 `기타` 행에 **소급** 저장된다. */
   $('memo').addEventListener('input',function(){
     memoWarn();

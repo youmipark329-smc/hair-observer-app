@@ -146,6 +146,21 @@
     background:#2a2016;color:#fff;border-radius:12px;padding:12px 13px;box-shadow:0 10px 26px rgba(0,0,0,.4);
     display:flex;gap:10px;align-items:center;transform:translateY(160%);transition:transform .26s cubic-bezier(.2,.9,.3,1);z-index:20}
   .toast.show{transform:translateY(0)}
+  /* [D47] 실행취소 확인 — 무엇이 지워지는지 보여준다. */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;
+    justify-content:center;z-index:40;padding:18px}
+  .modal.hidden{display:none}
+  .mbox{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;
+    max-width:340px;width:100%;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+  .mttl{font-weight:800;font-size:15px;margin-bottom:10px}
+  .mbody{background:var(--soft);border-radius:10px;padding:11px 12px;margin-bottom:14px}
+  .mbody .utime{font-size:12px;color:var(--muted)}
+  .mbody .ucode{font-size:17px;font-weight:800;margin-top:2px}
+  .mbody .ubed{margin-top:8px;font-size:12.5px;font-weight:800;color:#c62828}
+  .mrow{display:flex;gap:8px}
+  .mrow button{flex:1;border:1px solid var(--line);background:var(--panel);color:inherit;
+    border-radius:10px;padding:11px;font-weight:800;font-size:14px;font-family:inherit;cursor:pointer}
+  .mrow button.danger{background:#c62828;border-color:#c62828;color:#fff}
   .toast .ico{font-size:20px}.toast .msg{flex:1;font-size:13px;line-height:1.35}.toast .msg b{color:#ffd08a}
   .toast button{background:#ffb454;color:#3a2600;border:0;border-radius:8px;padding:7px 11px;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit}
 
@@ -411,9 +426,19 @@
 
   </div>
   <!-- [D20] 버전 표기는 app.js 의 APP_VERSION 에서 주입된다(정적 텍스트는 스크립트 미실행 시 폴백) -->
-  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.40</span> (PWA) · <span id="verMode">—</span></div>
+  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.41</span> (PWA) · <span id="verMode">—</span></div>
 </div>
 
+<div class="modal hidden" id="undoModal">
+  <div class="mbox">
+    <div class="mttl">실행취소 — 아래 기록을 지웁니다</div>
+    <div class="mbody" id="undoWhat"></div>
+    <div class="mrow">
+      <button type="button" id="undoCancel">그대로 두기</button>
+      <button type="button" id="undoOk" class="danger">지우기</button>
+    </div>
+  </div>
+</div>
 <div class="toast" id="rtoast">
   <span class="ico">↩</span>
   <span class="msg"></span>
