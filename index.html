@@ -125,6 +125,8 @@
   .banner{border-radius:10px;padding:9px 12px;font-size:12.5px;font-weight:800;display:none}
   .banner.ctx{display:block;background:rgba(232,130,12,.12);color:#a15a00;border:1px solid rgba(232,130,12,.5)}
   .banner.lock{display:block;background:var(--soft);color:var(--muted);border:1px dashed var(--line)}
+  .banner.resume{display:block;background:rgba(46,125,50,.12);color:#1b5e20;border:1px solid rgba(46,125,50,.45)}
+  :root[data-theme="dark"] .banner.resume{color:#8fd694}
   :root[data-theme="dark"] .banner.ctx{color:#f0b072}
   .log h4{margin:0 0 6px;font-size:11px;color:var(--muted);font-weight:800;display:flex;justify-content:space-between}
   .log h4 a{color:var(--accent);cursor:pointer;font-weight:800}
@@ -301,6 +303,7 @@
         <div class="chips" id="motions"></div>
         <div class="rowlbl" style="margin-top:12px">맥락 <span class="tag">한 번에 하나 · 자세와 독립</span></div>
         <div class="chips" id="contexts"></div>
+        <div id="resumebanner" class="banner" style="margin-top:10px"></div>
         <div id="ctxbanner" class="banner" style="margin-top:10px"></div>
         <div id="lockbanner" class="banner" style="margin-top:8px"></div>
         <!-- [D30] v1.24 — 관찰자 판단(불확실·메모)을 맥락 칩과 분리한다. -->
@@ -405,7 +408,7 @@
 
   </div>
   <!-- [D20] 버전 표기는 app.js 의 APP_VERSION 에서 주입된다(정적 텍스트는 스크립트 미실행 시 폴백) -->
-  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.28</span> (PWA) · <span id="verMode">—</span></div>
+  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.29</span> (PWA) · <span id="verMode">—</span></div>
 </div>
 
 <div class="toast" id="rtoast">

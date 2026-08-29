@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.28';
+var APP_VERSION='1.29';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -433,6 +433,15 @@ function render(){
   Array.prototype.forEach.call(sc.children,function(b){ b.classList.toggle('on',b.dataset.c===S.cur); b.disabled=LOCKED()||S.ended; });
   Array.prototype.forEach.call(mc.children,function(b){ b.classList.toggle('disabled',LOCKED()||S.cur==='WLK'||S.ended); });
   Array.prototype.forEach.call(cc.children,function(b){ var a=b.dataset.c===S.ctx; b.classList.toggle('on',a&&b.dataset.c!=='none'); b.classList.toggle('onnone',a&&b.dataset.c==='none'); });
+  var rb=$('resumebanner');
+  if(rb){
+    /* [D35] 재개로 들어온 세션임을 **상시** 알린다. 게이트를 없앤 대신 이 배너가
+       「다른 환자인데 이전 세션에 이어붙이고 있는」 경우를 눈에 띄게 만든다. */
+    if(RESUMED_PID){ rb.className='banner resume';
+      rb.innerHTML='↩ <b>이어서 기록 중</b> · '+esc(RESUMED_PID)+
+        ' — 다른 환자라면 <b>[세션 종료]</b> 후 새로 시작하세요';
+    } else rb.className='banner';
+  }
   var cb=$('ctxbanner'),lb=$('lockbanner'); cb.className='banner'; lb.className='banner';
   if(S.ctx!=='none'){ cb.className='banner ctx'; cb.textContent='⚠ 맥락: '+koCtx(S.ctx)+' — 관찰 복귀를 상기'; }
   if(LOCKED()){ lb.className='banner lock'; lb.textContent='🔒 미관찰(상태 입력 잠금) — 관찰 복귀 시 자동 해제'; }
@@ -649,11 +658,16 @@ function openGate(list){
   var open=null;
   for(var i=0;i<list.length;i++){ if(!list[i].ended){ open=list[i]; break; } }
   if(!open){ card.classList.add('hidden'); $('startBtn').disabled=false; clearLive(); return; }
-  /* [D34] **새로고침**이면 게이트를 띄우지 않고 바로 이어서 기록한다. 기록 중 화면이
-     등록화면으로 되돌아가면 관찰자가 자리를 잃고, 그 사이 bed-exit(1차 종료점)을 놓친다.
-     앱을 껐다 켠 경우(sessionStorage 소실)에는 게이트를 그대로 띄운다 — 다음 환자를
-     이전 세션에 잘못 이어붙이는 것을 계속 막아야 한다. */
-  if(isLive(open.id)){ card.classList.add('hidden'); resumeSession(open); showResumeToast(open.pid); return; }
+  /* [D35] **세션 종료를 누르기 전에는 등록화면으로 보내지 않는다** — 조건 없이 이어서 기록한다.
+     [D34] 는 sessionStorage 로 「새로고침 vs 앱 재시작」을 갈랐지만, 설치형 PWA 에서는
+     안드로이드가 앱을 회수했다 재실행하면 새 browsing context 라 표식이 지워진다 —
+     관찰자에겐 그것도 그냥 새로고침으로 보이므로 경계가 계속 어긋났다.
+     기록 중 등록화면으로 튀면 관찰자가 자리를 잃고 그 사이 bed-exit(1차 종료점)을 놓친다.
+     ★ 게이트가 막던 위험(세션을 안 끝내고 다음 환자로 이동)은 없어지지 않았다 —
+       코딩화면 상단 **상시 배너**로 옮겨 in-place 로 계속 보이게 한다(renderResumeBanner). */
+  card.classList.add('hidden');
+  try { resumeSession(open); RESUMED_PID=open.pid; render(); return; }
+  catch(e){ /* 재개 실패 시에만 종전 게이트로 되돌아간다 */ }
   $('openMeta').textContent=open.pid+' · '+open.obs+(open.set?(' · '+open.set):'')+
     ' · '+dateStr(open.createdDevice)+' '+clock(open.createdDevice)+' 시작';
   card.classList.remove('hidden');
@@ -668,6 +682,7 @@ function esc(t){return String(t==null?'':t).replace(/[<>&]/g,function(c){return{
    구분한다. 시간 기준(예: 5분 이내면 재개)은 근사치일 뿐이고, 관찰자가 세션을 끝내지 않은 채
    다음 환자로 이동한 경우를 잘못 이어붙일 수 있다. */
 var LIVE_KEY='hair_live';
+var RESUMED_PID=null;    // [D35] 재개로 들어온 세션의 환자 ID(배너 표시용)
 function markLive(id){ try{ sessionStorage.setItem(LIVE_KEY,String(id)); }catch(e){} }
 function clearLive(){ try{ sessionStorage.removeItem(LIVE_KEY); }catch(e){} }
 function isLive(id){ try{ return sessionStorage.getItem(LIVE_KEY)===String(id); }catch(e){ return false; } }
@@ -940,8 +955,8 @@ function bind(){
   $('markerBtn').addEventListener('click',tapSyncMarker);
   $('undo').addEventListener('click',doUndo);
   $('undo').addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){doUndo();e.preventDefault();}});
-  $('unc').addEventListener('click',function(){if(!S||S.ended)return;S.unc=!S.unc;if(S.unc)S.uncCount++;markLive(S.id);                                     // [D34]
-  clearLive();                                       // [D34] 종료하면 자동재개 안 함
+  $('unc').addEventListener('click',function(){if(!S||S.ended)return;S.unc=!S.unc;if(S.unc)S.uncCount++;markLive(S.id); RESUMED_PID=null;                   // [D34][D35] 새 세션은 재개 아님
+  clearLive(); RESUMED_PID=null;                      // [D34][D35] 종료하면 재개 아님
   persist();render();$('memo').focus();});
   // [D8] 센서 토글을 로그에 남겨 undo 가능하게 한다(값은 이후 push 되는 행부터 반영).
   $('sensorbtn').addEventListener('click',function(){
