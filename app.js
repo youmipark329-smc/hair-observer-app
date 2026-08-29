@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.29';
+var APP_VERSION='1.30';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -437,7 +437,10 @@ function render(){
   if(rb){
     /* [D35] 재개로 들어온 세션임을 **상시** 알린다. 게이트를 없앤 대신 이 배너가
        「다른 환자인데 이전 세션에 이어붙이고 있는」 경우를 눈에 띄게 만든다. */
-    if(RESUMED_PID){ rb.className='banner resume';
+    if(SW_PENDING){ rb.className='banner resume';
+      rb.innerHTML='⬆ <b>새 판본이 준비됐습니다</b> — <b>[세션 종료]</b> 후 자동 적용됩니다'+
+        (RESUMED_PID?(' · 이어서 기록 중 · '+esc(RESUMED_PID)):''); }
+    else if(RESUMED_PID){ rb.className='banner resume';
       rb.innerHTML='↩ <b>이어서 기록 중</b> · '+esc(RESUMED_PID)+
         ' — 다른 환자라면 <b>[세션 종료]</b> 후 새로 시작하세요';
     } else rb.className='banner';
@@ -683,6 +686,7 @@ function esc(t){return String(t==null?'':t).replace(/[<>&]/g,function(c){return{
    다음 환자로 이동한 경우를 잘못 이어붙일 수 있다. */
 var LIVE_KEY='hair_live';
 var RESUMED_PID=null;    // [D35] 재개로 들어온 세션의 환자 ID(배너 표시용)
+var SW_PENDING=false;    // [D36] 새 판본이 준비됐으나 관찰 중이라 대기
 function markLive(id){ try{ sessionStorage.setItem(LIVE_KEY,String(id)); }catch(e){} }
 function clearLive(){ try{ sessionStorage.removeItem(LIVE_KEY); }catch(e){} }
 function isLive(id){ try{ return sessionStorage.getItem(LIVE_KEY)===String(id); }catch(e){ return false; } }
@@ -957,6 +961,8 @@ function bind(){
   $('undo').addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){doUndo();e.preventDefault();}});
   $('unc').addEventListener('click',function(){if(!S||S.ended)return;S.unc=!S.unc;if(S.unc)S.uncCount++;markLive(S.id); RESUMED_PID=null;                   // [D34][D35] 새 세션은 재개 아님
   clearLive(); RESUMED_PID=null;                      // [D34][D35] 종료하면 재개 아님
+  /* [D36] 관찰 중이라 미뤄 둔 판본 교체를 **세션이 닫히는 지금** 적용한다. */
+  if(SW_PENDING && !SW_RELOADED){ SW_RELOADED=true; setTimeout(function(){ location.reload(); },900); }
   persist();render();$('memo').focus();});
   // [D8] 센서 토글을 로그에 남겨 undo 가능하게 한다(값은 이후 push 되는 행부터 반영).
   $('sensorbtn').addEventListener('click',function(){
@@ -1077,7 +1083,11 @@ function boot(){
       navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(function(){});
       navigator.serviceWorker.addEventListener('controllerchange',function(){
         if(SW_RELOADED || !SW_HAD_CONTROLLER) return;     // 최초 설치는 리로드하지 않는다
-        if(S && !S.ended) return;                        // 관찰 중 — 건드리지 않는다
+        /* [D36] 관찰 중이면 화면을 날리지 않는다. 다만 **버리지도 않는다** —
+           종전에는 여기서 return 하고 끝이라 적용 시점이 영영 오지 않았고,
+           관찰자는 계속 옛 판본을 쓰게 됐다. 대기 표시를 남겨
+           `endSession` 이 세션을 닫는 즉시 적용한다. */
+        if(S && !S.ended){ SW_PENDING=true; try{ render(); }catch(_){} return; }
         SW_RELOADED=true; location.reload();
       });
     }catch(e){}

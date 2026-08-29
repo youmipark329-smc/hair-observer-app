@@ -1,5 +1,5 @@
-/* HAIR 관찰코딩 · Service Worker · app v1.29 (2026-08-29)
-   [D20] CACHE 이름은 app.js 의 APP_VERSION 과 함께 올린다(v1.29 ↔ hair-observer-v32).
+/* HAIR 관찰코딩 · Service Worker · app v1.30 (2026-08-29)
+   [D20] CACHE 이름은 app.js 의 APP_VERSION 과 함께 올린다(v1.30 ↔ hair-observer-v33).
 
    [D26] v1.20 — **cache-first(셸 원자성)**. v1.16~v1.19 의 network-first + 1.5초 상한을 걷어낸다.
    왜 바꾸나: 상한이 **파일마다 따로** 판정되다 보니 index.html 은 캐시(옛 판),
@@ -15,13 +15,30 @@
    (v1.16 이 1.5초로 줄인 것을 0으로 만든다).
 
    관찰 데이터는 IndexedDB(캐시와 무관). 시각 엔드포인트 등 외부 API는 항상 네트워크. */
-var CACHE='hair-observer-v32';
+var CACHE='hair-observer-v33';
 var SHELL=['./','./index.html','./app.js','./manifest.webmanifest',
   './icons/icon-192.png','./icons/icon-512.png','./icons/icon-maskable-512.png'];
 
+/* [D36] v1.30 — `cache.addAll` 은 **브라우저 HTTP 캐시를 그대로 탄다.**
+   GitHub Pages 가 `Cache-Control: max-age=600` 이라, 배포 직후 10분 안에 앱을 열면
+   새 SW 가 **옛 app.js/index.html 을 캐시에 담아** 판본이 올라가지 않는다
+   (실측: v1.29 배포 후 폰이 v1.28 을 받음).
+   → `fetch(u,{cache:'reload'})` 로 HTTP 캐시를 우회해 받는다.
+   원자성은 유지한다: **전부 받은 뒤에만** put 하므로, 하나라도 실패하면 이 캐시는
+   만들어지지 않고 옛 SW 가 계속 산다(= addAll 과 같은 보장). */
 self.addEventListener('install',function(e){
-  // addAll 은 원자적이다 — 하나라도 실패하면 이 캐시는 만들어지지 않고 옛 SW 가 계속 산다.
-  e.waitUntil(caches.open(CACHE).then(function(c){ return c.addAll(SHELL); }).then(function(){ return self.skipWaiting(); }));
+  e.waitUntil(
+    Promise.all(SHELL.map(function(u){
+      return fetch(u,{cache:'reload'}).then(function(r){
+        if(!r || !r.ok) throw new Error('shell fetch 실패: '+u);
+        return [u,r];
+      });
+    })).then(function(pairs){
+      return caches.open(CACHE).then(function(c){
+        return Promise.all(pairs.map(function(p){ return c.put(p[0],p[1]); }));
+      });
+    }).then(function(){ return self.skipWaiting(); })
+  );
 });
 self.addEventListener('activate',function(e){
   e.waitUntil(caches.keys().then(function(keys){
