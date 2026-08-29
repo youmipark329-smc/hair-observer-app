@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.33';
+var APP_VERSION='1.34';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -318,9 +318,10 @@ function memoWarn(){
 /* [D39] 화장실도 **미관찰**이다 — 관찰자는 화장실까지 따라가지 않는다(관찰구역 밖).
    종전에는 off_view/off_ward 만 잠가서, 환자가 화장실에 있는데도 자세 버튼과
    움직임상세가 눌려 **보지 않은 행동이 기록**될 수 있었다.
-   `procedure`(처치중)는 **일부러 제외** — 관찰자가 침상 곁에 있어 볼 수 있고,
-   SAP 부록 C.2 가 그 구간을 **노출 창**으로 쓰므로 분모에 남아야 한다. */
-var LOCKED=function(){return S&&(S.ctx==='toilet'||S.ctx==='off_view'||S.ctx==='off_ward');};
+   [D40] `procedure`(처치중)도 포함한다 — **커튼을 치므로 보이지 않는다**(연구자 확인).
+   v1.33 에서 내가 「곁에 있어 볼 수 있다」고 가정해 빼뒀던 것을 바로잡는다.
+   ⇒ 관찰 중(none)이 아닌 **모든 맥락에서 자세·움직임 입력이 잠긴다.** */
+var LOCKED=function(){return S&&S.ctx!=='none';};
 
 /* ───────── 버튼 빌드 ───────── */
 var sc,mc,cc;
