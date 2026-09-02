@@ -14,7 +14,7 @@
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.44';
+var APP_VERSION='1.45';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -92,12 +92,13 @@ function setObsSel(id,val){
   }
   el.value=val;
 }
-/* ModeA 17컬럼(코딩시트 스키마 동일 순서) + 시각동기 6컬럼(결합키) + [D20] 2컬럼 + [D21] 1컬럼 = 26컬럼
-   ※ 기존 23컬럼의 이름·순서는 절대 바꾸지 않는다. 신설분은 반드시 맨 뒤에 덧붙인다. */
+/* ModeA 17컬럼(코딩시트 스키마 동일 순서) + 시각동기 6컬럼(결합키) + [D20] 2컬럼
+   + [D21] 1컬럼 + [D54] 1컬럼 = 27컬럼
+   ※ 기존 컬럼의 이름·순서는 절대 바꾸지 않는다. 신설분은 반드시 맨 뒤에 덧붙인다. */
 var HEAD_CORE=['record_id','observer_id','patient_id','date','time_start','time_end','code','is_bed_exit',
   'context','in_bed_move','sensor_status','uncertain','duration_sec','note','enroll_date','set_assign','motion_detail'];
 var HEAD_TIME=['t_server_start','t_server_end','clock_offset_ms','sync_flag','session_id','device_serial'];
-var HEAD_EXT=['app_version','rtt_ms','dual_code'];              // [D20][D21] 신설 — 맨 뒤 고정
+var HEAD_EXT=['app_version','rtt_ms','dual_code','consent_confirmed'];  // [D20][D21][D54] 신설 — 맨 뒤 고정
 var HEAD=HEAD_CORE.concat(HEAD_TIME).concat(HEAD_EXT);
 
 /* ───────── 시각동기 모듈 (단조앵커 + Cristian) ───────── */
@@ -259,6 +260,7 @@ function newSession(meta){
     id:'S'+Date.now()+'-'+Math.floor(performance.now()),
     obs:meta.obs, pid:meta.pid, set:meta.set||'', enroll:meta.enroll||'', serial:meta.serial||'', sessNote:meta.note||'',
     dual:meta.dual?1:0,                              // [D21] 이중코딩(κ) 세션 표시 — 전 행에 상속
+    consent:(meta.consent===1?1:(meta.consent===0?0:'')),   // [D54] 임상시험 동의 확인 — 전 행에 상속
     createdDevice:Date.now(),
     cur:(meta.start||'LIE'), ctx:'none', unc:false, sensor:'on', reminded:false, ended:false, endTs:null,
     sessionStart:ts, boutStart:ts, boutStartDev:Date.now(), boutEnter:(meta.start||'LIE'), boutIsBed:false,
@@ -617,6 +619,13 @@ function ctxRows(sess,nowTs){
       dur:Math.max(0,(nowTs-sess.ctxStart)/1000),offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:sess.sensor,open:true}]); }
   return rows;
 }
+/* [D54] 동의 확인 값. **구형 세션(v1.44 이하)은 빈 값**으로 나간다 — 「기록 없음」과
+   「미취득(0)」은 다른 사실이라 0 으로 뭉개면 안 된다. 신규 세션은 게이트를 통과해야만
+   만들어지므로 실제 export 에는 1 또는 빈 값만 나온다. */
+function consentOut(sess){
+  var v=sess&&sess.consent;
+  return (v===1||v==='1')?1:((v===0||v==='0')?0:'');
+}
 function csvEscape(v){v=String(v==null?'':v);return /[",\n]/.test(v)?('"'+v.replace(/"/g,'""')+'"'):v;}
 function sessRows(sess,includeHead,nowTs){
   /* [D3] 어떤 export 경로로 들어와도 구형 세션의 rid 를 먼저 확정한다
@@ -632,7 +641,7 @@ function sessRows(sess,includeHead,nowTs){
         r.code,r.bed,b.ctx,r.ibm,senOut(b),b.unc?1:0,Math.max(0,(r.end-r.start)/1000).toFixed(1),(r.last?(b.note||''):''),
         sess.enroll,sess.set||'','',
         isoMs(r.start),r.open?'':isoMs(r.end),offOut(b),b.flag||'',sess.id,sess.serial||'',
-        APP_VERSION,rttOut(b),sess.dual]);
+        APP_VERSION,rttOut(b),sess.dual,consentOut(sess)]);
     });
   });
   // [D1] context 행종: is_bed_exit=0 · motion_detail·in_bed_move 공란 · 시각은 구간 경계
@@ -645,7 +654,7 @@ function sessRows(sess,includeHead,nowTs){
     out.push([rid(cb.rid),sess.obs,sess.pid,dateStr(cb.start),clock(cb.start),cb.open?'(진행중)':clock(cb.end),
       'context',0,cb.ctx,'',senOut(cb),0,cb.dur.toFixed(1),(cb.gap?'__resume_gap__':''),sess.enroll,sess.set||'','',
       isoMs(cb.start),cb.open?'':isoMs(cb.end),offOut(cb),cb.flag||'',sess.id,sess.serial||'',
-      APP_VERSION,rttOut(cb),sess.dual]);
+      APP_VERSION,rttOut(cb),sess.dual,consentOut(sess)]);
   });
   /* [D53] 식사는 **구간**이라 종료시각·duration 을 낸다(그 외 움직임은 종전대로 점).
      로더는 duration_sec>0 으로 구간/순간을 구분한다 — 컬럼도 어휘도 늘리지 않았다. */
@@ -654,7 +663,7 @@ function sessRows(sess,includeHead,nowTs){
     out.push([rid(m.rid),sess.obs,sess.pid,dateStr(m.t),clock(m.t),clock(te),
       'motion',0,'',m.ibm?1:0,senOut(m),m.unc?1:0,du.toFixed(1),m.note||'',sess.enroll,sess.set||'',m.code,
       isoMs(m.t),isoMs(te),offOut(m),m.flag||'',sess.id,sess.serial||'',
-      APP_VERSION,rttOut(m),sess.dual]);
+      APP_VERSION,rttOut(m),sess.dual,consentOut(sess)]);
   });
   /* [D47] 실행취소 감사행 — code='undo' 순간행. 지운 대상은 note 의 고정 토큰에 싣는다.
      로더가 is_undo/undo_target 으로 뽑은 뒤 자유텍스트는 기존대로 폐기한다. */
@@ -662,13 +671,13 @@ function sessRows(sess,includeHead,nowTs){
     out.push([rid(u.rid),sess.obs,sess.pid,dateStr(u.t),clock(u.t),clock(u.t),
       'undo',0,'',0,senOut(u),0,'0.0','__undo__:'+(u.target||''),sess.enroll,sess.set||'','',
       isoMs(u.t),isoMs(u.t),offOut(u),u.flag||'',sess.id,sess.serial||'',
-      APP_VERSION,rttOut(u),sess.dual]);
+      APP_VERSION,rttOut(u),sess.dual,consentOut(sess)]);
   });
   (sess.markers||[]).forEach(function(k){
     out.push([rid(k.rid),sess.obs,sess.pid,dateStr(k.t),clock(k.t),clock(k.t),
       'sync_marker',0,'',0,senOut(k),0,'0.0','',sess.enroll,sess.set||'','',
       isoMs(k.t),isoMs(k.t),offOut(k),k.flag||'',sess.id,sess.serial||'',
-      APP_VERSION,rttOut(k),sess.dual]);
+      APP_VERSION,rttOut(k),sess.dual,consentOut(sess)]);
   });
   return out;
 }
@@ -947,6 +956,24 @@ function startSession(){
     return;
   }
   $('s_pid').value=pid;                             // [D21] 정규화 결과를 화면에도 되돌려 준다
+  /* [D54] 임상시험 동의 게이트. 다른 검증과 달리 **우회 경로를 두지 않는다** —
+     병동 불일치는 전동(轉棟)이라는 정당한 사유가 있어 confirm 으로 통과시키지만,
+     동의 없는 관찰은 IRB 위반이라 예외가 없다. */
+  var consentSel=$('s_consent'), consentRaw=consentSel?String(consentSel.value||''):'';
+  if(consentRaw===''){
+    if(consentSel) consentSel.focus();
+    alert('임상시험 동의 여부를 확인해 주세요.\n\n'+
+          '서면 동의를 받은 환자인지 확인한 뒤 선택하십시오.');
+    return;
+  }
+  if(consentRaw==='0'){
+    if(consentSel) consentSel.focus();
+    alert('동의가 확인되지 않은 환자는 관찰할 수 없습니다.\n\n'+
+          '익명ID : '+pid+'\n\n'+
+          'CRC 에게 동의 취득 여부를 확인한 뒤 다시 시작하십시오.');
+    return;
+  }
+  var consent=1;
   /* [D21] 익명ID 안의 병동과 set_assign 을 대조한다. 다르면 전동(轉棟)일 수 있으므로
      막지 않고 확인만 받는다. 분석은 set_assign 을 쓰고 익명ID를 파싱하지 않는다. */
   var set=normWard($('s_set').value);                 // [D24] 16E/15E 외 값은 미선택으로 본다
@@ -965,15 +992,15 @@ function startSession(){
     if(n && !confirm('이미 이 익명ID로 저장된 세션이 '+n+'건 있습니다.\n\n'+
                      '패치 교체 · 근무 교대 · 이중코딩(κ)이면 그대로 진행하세요.\n'+
                      '다른 환자라면 [취소] 후 익명ID를 다시 확인하세요.\n\n진행할까요?')) return;
-    beginSession(obs,pid,set);
-  }).catch(function(){ beginSession(obs,pid,set); });
+    beginSession(obs,pid,set,consent);
+  }).catch(function(){ beginSession(obs,pid,set,consent); });
 }
-function beginSession(obs,pid,set){
+function beginSession(obs,pid,set,consent){
   var startState=($('s_start')&&$('s_start').value)||'LIE';
   var dual=($('s_dual')&&$('s_dual').value==='1')?1:0;
   var enroll=stampSec(Clock.now());                 // 관찰 시작 누른 시각 자동 저장
   S=newSession({obs:obs,pid:pid,set:set,enroll:enroll,serial:($('s_serial').value||'').trim(),
-                start:startState,dual:dual});
+                start:startState,dual:dual,consent:(consent===1?1:(consent===0?0:''))});
   // [D4] 설정 저장 실패가 세션 시작을 막지는 않지만, 미처리 rejection 으로 새지 않게 한다
   CFG.obs=obs; CFG.set=set; saveCfg().catch(function(){});
   /* [D37] 새 세션이므로 **재개 상태를 반드시 턴다** — 이 줄이 빠져 있어서
