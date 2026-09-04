@@ -13,8 +13,11 @@
                bout 행 in_bed_move 파생 [D11], 시계 slew [D6], 재개 gap 보존 [D2].
    v1.15 변경 [D21]: patient_id 를 measurement_code 로 안내하던 문구 정정(둘은 다른 키다),
                patient_id 정규식 검증·대문자 정규화·병동 교차검증·중복 익명ID 경고,
-               observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설. */
-var APP_VERSION='1.45';
+               observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설.
+   v1.46 변경 (2026-09-04 · 시험 export 검토 반영): ① device_serial 형식 검증(SERIAL_RE)·빈 값은 확인 창으로만 통과,
+               ② [세션 종료] 시 동기마커 2회 미만이면 확인 창(시작·종료 각 1회 규칙), ③ 요약 KPI(마커 ≥2 초록·시리얼 유무).
+               CSV 스키마(27컬럼)는 바뀌지 않는다. */
+var APP_VERSION='1.46';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -56,6 +59,10 @@ function transCode(from,to){ return from+'→'+to; }
    결합키가 깨진 사실은 몇 주 뒤 병원 PC 결합 단계에서야 드러난다(그때는 되돌릴 수 없다).
    ※ measurement_code(씨어스 세션키)는 관찰 시점에 존재하지 않는다 — 여기 들어올 수 없다. */
 var PID_RE=/^P-(16E|15E)-\d{3}$/;
+/* [v1.46] 패치 시리얼 정본 형식 — 영문 1자 + 숫자 6자리(예 A030649, 씨어스 serial_ecg_1 과 동일 값).
+   9/4 시험 export 에서 빈 값이 그대로 통과한 것이 확인됐다. 형식 위반은 막고, 빈 값은 「판독 불가 →
+   병상+측정 시작시각 보조키」라는 정당한 사유가 있으므로 confirm 으로만 통과시킨다(체크리스트 ③). */
+var SERIAL_RE=/^[A-Z]\d{6}$/;
 /* [D21] 관찰자 로스터. 실명·이니셜은 넣지 않는다(직원 준식별자이고 배포본 IndexedDB 에 남는다).
    OBS-NN ↔ 실명 대응은 위임 로그(ICH E6 §4.1.5)에 둔다. */
 /* [D24] 병동은 16E/15E 뿐이다. 구형 자유입력('16E-A' 등)이 CFG 에 남아 있으면
@@ -709,6 +716,15 @@ function download(name,text){ var blob=new Blob([text],{type:'text/csv;charset=u
 /* ───────── 세션 요약 ───────── */
 function endSession(){
   if(!S)return;
+  /* [v1.46] 종료 동기마커 — DEVICE 모드에서 폰–서버 시각 정합의 유일한 실측 근거다(관찰카드 ⏱: 시작·종료 각 1회).
+     9/4 시험 export 는 시작 1회만 찍힌 채 종료됐다. 2회 미만이면 확인을 받되 **막지는 않는다** —
+     종료 자체를 막으면 기록이 열린 채 남아 다음 환자로 이월될 수 있다(D22·D35). */
+  if(!S.ended){
+    var nm=(S.markers||[]).length;
+    if(nm<2 && !confirm('동기마커가 '+nm+'회뿐입니다 (규칙: 세션 시작·종료 각 1회).\n\n'+
+                        '[취소] 를 누르고 패치를 2~3회 두드리며 [⏱ 동기마커] 를 탭한 뒤 다시 종료하세요.\n\n'+
+                        '그래도 지금 종료할까요?')) return;
+  }
   if(!S.ended){
     var ts=Clock.now(), sn=snapT();
     S.bouts.push({rid:S.boutRid,rid2:S.boutRid2,state:S.cur,enter:S.boutEnter,isBed:S.boutIsBed,start:S.boutStart,startDev:S.boutStartDev,
@@ -751,7 +767,8 @@ function buildSummary(sess,endTs){
     kpi(String(trans),'','상태 전환 수')+
     kpi(fmtDur(off),(off>0?'warn':''),'미관찰(관찰중 아님)')+
     kpi(String(sess.motions.length),'','움직임 태그')+
-    kpi(String((sess.markers||[]).length),((sess.markers||[]).length>0?'good':''),'⏱ 동기마커(#8)')+
+    kpi(String((sess.markers||[]).length),((sess.markers||[]).length>=2?'good':'alert'),'⏱ 동기마커(#8 · 시작·종료 각 1회)')+   // [v1.46] 2회 미만은 경고색
+    kpi(sess.serial?'있음':'없음',(sess.serial?'good':'alert'),'패치 시리얼(device_serial)')+                                 // [v1.46] 빈 값이면 연계 QC 불가
     kpi(String(sess.uncCount),(sess.uncCount>0?'alert':''),'불확실 횟수')+
     kpi(String(sess.undoCount),'','실행취소');
   var maxv=Math.max(1,byState.LIE,byState.SIT,byState.STD,byState.WLK);
@@ -974,6 +991,24 @@ function startSession(){
     return;
   }
   var consent=1;
+  /* [v1.46] 패치 시리얼 — 등록연계 QC(device_serial == serial_ecg_1)의 유일한 앱 측 근거. */
+  var serialRaw=($('s_serial').value||'').trim().toUpperCase().replace(/\s+/g,'');
+  if(serialRaw && !SERIAL_RE.test(serialRaw)){
+    $('s_serial').value=serialRaw; $('s_serial').focus();
+    alert('패치 시리얼 형식이 맞지 않습니다.\n\n입력값 : '+serialRaw+
+          '\n정본 형식 : A030649  (영문 1자 + 숫자 6자리)\n\n'+
+          '패치 표면 표기를 그대로 입력하세요. 씨어스 serial_ecg_1 과 대조합니다.');
+    return;
+  }
+  if(!serialRaw){
+    if(!confirm('패치 시리얼이 비어 있습니다.\n\n'+
+                '시리얼은 씨어스 serial_ecg_1 과 대조하는 연계 QC 근거입니다.\n'+
+                '패치 표기를 읽을 수 없어 병상+측정 시작시각으로 사후 연계할 때만 비워 둡니다\n'+
+                '(등록 기록시트 ③에 병상·측정 시작시각을 반드시 적으세요).\n\n비운 채로 시작할까요?')){
+      $('s_serial').focus(); return;
+    }
+  }
+  $('s_serial').value=serialRaw;                    // 정규화 결과를 화면에도 되돌려 준다
   /* [D21] 익명ID 안의 병동과 set_assign 을 대조한다. 다르면 전동(轉棟)일 수 있으므로
      막지 않고 확인만 받는다. 분석은 set_assign 을 쓰고 익명ID를 파싱하지 않는다. */
   var set=normWard($('s_set').value);                 // [D24] 16E/15E 외 값은 미선택으로 본다
