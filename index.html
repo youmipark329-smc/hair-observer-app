@@ -296,11 +296,11 @@
         </select>
         <label class="f">패치 시리얼 (device_serial · 등록연계 ★)</label>
         <!-- [v1.47] 씨어스 납품 목록(devices.js · DEVICES.patches)에서 고른다. 옵션은 app.js fillSerialSel 이
-             선택 병동을 위로 두고 채운다. 목록에 없는 패치(교체·추가 납품)는 「직접 입력」→ 아래 입력칸이 열리고
+             선택 병동(익명ID 병동 → set_assign)의 납품분만 채운다(v1.48 · 병동 미정이면 둘 다). 목록에 없는 패치(교체·추가 납품)는 「직접 입력」→ 아래 입력칸이 열리고
              종전 SERIAL_RE 검증을 그대로 탄다. 선택값은 #s_serial 에 써 넣으므로 세션·CSV 로직은 v1.46 과 같다. -->
         <select class="t" id="s_serial_sel"><option value="">— 선택 —</option></select>
         <input class="t hidden" id="s_serial" placeholder="예: A030649 (패치 표면 표기 그대로)" maxlength="32" spellcheck="false" autocomplete="off">
-        <div class="hint">패치 표면의 시리얼을 목록에서 고르세요(씨어스 납품 목록 · 16E 16개 · 15E 23개). 목록에 없으면 「직접 입력」(영문 1자 + 숫자 6자리). <b>필수 항목</b> — 비우면 시작할 수 없습니다. 표기를 읽을 수 없으면 CRC 에게 확인하세요. (v1.47)</div>
+        <div class="hint">패치 표면의 시리얼을 목록에서 고르세요(씨어스 납품 목록 — 선택한 병동의 패치만 표시 · 16E 16개 · 15E 23개). 목록에 없으면 「직접 입력」(영문 1자 + 숫자 6자리). <b>필수 항목</b> — 비우면 시작할 수 없습니다. 표기를 읽을 수 없으면 CRC 에게 확인하세요. (v1.48)</div>
         <div class="two">
           <div><label class="f">병동 (set_assign)</label>
             <select class="t" id="s_set">
@@ -469,7 +469,7 @@
 
   </div>
   <!-- [D20] 버전 표기는 app.js 의 APP_VERSION 에서 주입된다(정적 텍스트는 스크립트 미실행 시 폴백) -->
-  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.47</span> (PWA) · <span id="verMode">—</span></div>
+  <div class="brand">HAIR 관찰코딩 · v<span id="verApp">1.48</span> (PWA) · <span id="verMode">—</span></div>
 </div>
 
 <div class="modal hidden" id="lockModal">

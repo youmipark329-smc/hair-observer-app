@@ -20,8 +20,10 @@
    v1.47 변경 (2026-09-17): 패치 시리얼을 **씨어스 납품 목록 드롭다운**(devices.js · 16E 16개·15E 23개, 선택 병동 우선)에서
                고르고, 목록에 없으면 「직접 입력」으로 종전 텍스트 입력 + SERIAL_RE 검증을 탄다. 선택값은 숨은 #s_serial 로
                들어가므로 startSession·CSV(27컬럼) 경로는 그대로다. **시리얼은 필수**(빈 값은 시작 차단 — v1.46 확인 창 통과 폐지).
-               sw.js 캐시 v49→v50 · SHELL 에 devices.js 추가. */
-var APP_VERSION='1.47';
+               sw.js 캐시 v49→v50 · SHELL 에 devices.js 추가.
+   v1.48 변경 (2026-09-17): 시리얼 드롭다운에 **선택 병동의 납품분만** 표시(익명ID 를 고르면 그 병동, set_assign 을 바꾸면 그 병동).
+               병동이 아직 없으면 두 병동 모두. 「목록에 없음 · 직접 입력」은 그대로. sw.js 캐시 v50→v51. */
+var APP_VERSION='1.48';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -76,8 +78,8 @@ var SERIAL_MANUAL='__manual__';
 function fillSerialSel(ward){
   var sel=$('s_serial_sel'); if(!sel) return;
   var D=(typeof DEVICES!=='undefined'&&DEVICES&&DEVICES.patches)||{};
-  var keep=sel.value, order=WARDS.slice(); ward=normWard(ward);
-  if(ward){ order.splice(order.indexOf(ward),1); order.unshift(ward); }   // 선택 병동 납품분을 위로
+  var keep=sel.value; ward=normWard(ward);
+  var order=ward?[ward]:WARDS.slice();   // [v1.48] 병동이 정해지면 그 병동 납품분만, 아직 없으면 두 병동 모두
   var h='<option value="">— 선택 —</option>';
   order.forEach(function(w){ var L=D[w]||[]; if(!L.length) return;
     h+='<optgroup label="'+w+' 납품 패치 ('+L.length+')">'+L.map(function(x){ return '<option value="'+x+'">'+x+'</option>'; }).join('')+'</optgroup>'; });
