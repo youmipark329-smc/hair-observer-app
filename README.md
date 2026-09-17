@@ -17,6 +17,8 @@ observer_app_pwa_20260814/
 ├─ app.js                   # 로직: 시각동기·IndexedDB·코딩·요약·CSV
 ├─ manifest.webmanifest     # 설치 메타(이름·아이콘·standalone)
 ├─ sw.js                    # 서비스워커(오프라인 앱셸 캐시)
+├─ devices.js               # [v1.47] 씨어스 납품 패치 시리얼 목록(드롭다운 데이터 · make_devices.py 로 생성 · 배포 파일)
+├─ make_devices.py          # [v1.47] devices.js 생성기(xlsx → js · 배포하지 않음)
 ├─ icons/                   # 아이콘 192·512·maskable-512 (PNG)
 └─ 20260826_README_설치_호스팅_안내.md
 ```
@@ -31,15 +33,17 @@ observer_app_pwa_20260814/
 > (main/root)로 **배포·라이브 검증까지 완료**(주소 `https://youmipark329-smc.github.io/hair-observer-app/`,
 > service worker 제어·오프라인 설치 확인). 이후 **웹주소는 임시 비활성(Pages 비활성화)** 한 상태 —
 > **저장소·파일·소스는 그대로 보존**. 파일럿 등에서 필요할 때 **Pages를 다시 켜면 같은 주소로 즉시 복구**됩니다
+> **(2026-09-08 갱신)** v1.46 갱신을 위해 9/2~9/8 켜 두었던 Pages 를 **다시 비활성**했습니다(공개 URL 404 확인). 연구폰에는 v1.46 이 설치되어 오프라인으로 동작합니다. 다음 판본 배포 때만 다시 켭니다.
 > (gh: `gh api -X POST repos/youmipark329-smc/hair-observer-app/pages -f "source[branch]=main" -f "source[path]=/"`).
 > 이미 설치된 폰의 앱·데이터(IndexedDB)는 주소 비활성과 무관하게 유지됩니다.
+> **(2026-09-17 · v1.47 준비)** 패치 시리얼을 **씨어스 납품 목록 드롭다운**(`devices.js`, 16E 16개·15E 23개, 「직접 입력」 예비 · **필수 — 빈 값은 시작 차단**)에서 고르도록 바꿨다(`sw.js` 캐시 v49→v50, SHELL 에 `devices.js` 추가). **2026-09-17 배포**: 파일 7종(+icons — `devices.js` 포함)을 `main` 에 올리고 Pages 를 켰다. **연구폰에서 한 번 온라인으로 앱을 실행해 v1.47 을 받은 뒤 Pages 를 다시 끈다**(끄기 전까지 공개 URL 활성). 새 납품이 오면 `python make_devices.py` 재실행 후 버전·캐시 번호를 올린다.
 > **앱 업데이트:** service worker가 **cache-first(v1.20~)** 이므로, 소스를 고쳐 재호스팅하면
 > 설치된 기기도 **다음 온라인 실행 시 자동으로 최신본**을 받습니다(옛 버전 고착 없음). 오프라인이면 마지막 캐시로 동작.
 
 PWA는 **HTTPS 주소로 열어야** "홈 화면에 추가 + 오프라인 설치"가 됩니다.
 
 ### 방법 A — GitHub Pages (무료·권장, 무 PII라 공개 저장소 OK)
-1. GitHub 계정으로 새 저장소 생성 → 이 폴더의 **파일 6종(+icons)** 업로드.
+1. GitHub 계정으로 새 저장소 생성 → 이 폴더의 **파일 7종(+icons · v1.47 부터 `devices.js` 포함, `make_devices.py`·`verify_version.js` 는 제외)** 업로드.
 2. 저장소 **Settings → Pages → Branch: main / root** 선택 → 저장.
 3. 몇 분 뒤 `https://<계정>.github.io/<저장소>/` 주소가 생김.
 4. **갤럭시 크롬**에서 그 주소 열기 → 아래 3절대로 설치.

@@ -16,8 +16,12 @@
                observer_id 자유입력 → 로스터 드롭다운, dual_code 26번째 컬럼 신설.
    v1.46 변경 (2026-09-04 · 시험 export 검토 반영): ① device_serial 형식 검증(SERIAL_RE)·빈 값은 확인 창으로만 통과,
                ② [세션 종료] 시 동기마커 2회 미만이면 확인 창(시작·종료 각 1회 규칙), ③ 요약 KPI(마커 ≥2 초록·시리얼 유무).
-               CSV 스키마(27컬럼)는 바뀌지 않는다. */
-var APP_VERSION='1.46';
+               CSV 스키마(27컬럼)는 바뀌지 않는다.
+   v1.47 변경 (2026-09-17): 패치 시리얼을 **씨어스 납품 목록 드롭다운**(devices.js · 16E 16개·15E 23개, 선택 병동 우선)에서
+               고르고, 목록에 없으면 「직접 입력」으로 종전 텍스트 입력 + SERIAL_RE 검증을 탄다. 선택값은 숨은 #s_serial 로
+               들어가므로 startSession·CSV(27컬럼) 경로는 그대로다. **시리얼은 필수**(빈 값은 시작 차단 — v1.46 확인 창 통과 폐지).
+               sw.js 캐시 v49→v50 · SHELL 에 devices.js 추가. */
+var APP_VERSION='1.47';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -60,9 +64,32 @@ function transCode(from,to){ return from+'→'+to; }
    ※ measurement_code(씨어스 세션키)는 관찰 시점에 존재하지 않는다 — 여기 들어올 수 없다. */
 var PID_RE=/^P-(16E|15E)-\d{3}$/;
 /* [v1.46] 패치 시리얼 정본 형식 — 영문 1자 + 숫자 6자리(예 A030649, 씨어스 serial_ecg_1 과 동일 값).
-   9/4 시험 export 에서 빈 값이 그대로 통과한 것이 확인됐다. 형식 위반은 막고, 빈 값은 「판독 불가 →
-   병상+측정 시작시각 보조키」라는 정당한 사유가 있으므로 confirm 으로만 통과시킨다(체크리스트 ③). */
+   9/4 시험 export 에서 빈 값이 그대로 통과한 것이 확인됐다. 형식 위반은 막는다.
+   [v1.47] 빈 값도 막는다(필수) — v1.46 의 confirm 통과는 폐지(결합키가 등록 화면으로 확정돼 보조키 사유가 사라졌다). */
 var SERIAL_RE=/^[A-Z]\d{6}$/;
+/* [v1.47] 패치 시리얼 드롭다운 — 씨어스 납품 목록(devices.js 의 DEVICES.patches, 병동별)에서 고른다.
+   ① 손으로 치는 시리얼 오타(0/O·1/I)가 연계 QC(device_serial == serial_ecg_1)를 깨던 경로를 막는다.
+   ② 목록에 없는 패치(교체·추가 납품)는 「직접 입력」으로 종전 입력칸 + SERIAL_RE 검증을 그대로 탄다.
+   ③ 선택값은 숨은 입력칸 #s_serial 에 써 넣으므로 startSession·beginSession·CSV 는 손대지 않는다.
+   목록 갱신 = make_devices.py 재실행 + 버전·캐시 번호 상향(devices.js 는 SW 셸 캐시에 들어간다). */
+var SERIAL_MANUAL='__manual__';
+function fillSerialSel(ward){
+  var sel=$('s_serial_sel'); if(!sel) return;
+  var D=(typeof DEVICES!=='undefined'&&DEVICES&&DEVICES.patches)||{};
+  var keep=sel.value, order=WARDS.slice(); ward=normWard(ward);
+  if(ward){ order.splice(order.indexOf(ward),1); order.unshift(ward); }   // 선택 병동 납품분을 위로
+  var h='<option value="">— 선택 —</option>';
+  order.forEach(function(w){ var L=D[w]||[]; if(!L.length) return;
+    h+='<optgroup label="'+w+' 납품 패치 ('+L.length+')">'+L.map(function(x){ return '<option value="'+x+'">'+x+'</option>'; }).join('')+'</optgroup>'; });
+  h+='<option value="'+SERIAL_MANUAL+'">목록에 없음 · 직접 입력</option>';
+  sel.innerHTML=h; sel.value=keep; if(sel.value!==keep) sel.value='';
+}
+function serialMode(){
+  var sel=$('s_serial_sel'), inp=$('s_serial'); if(!sel||!inp) return;
+  var manual=(sel.value===SERIAL_MANUAL);
+  inp.classList.toggle('hidden',!manual);
+  if(manual){ inp.value=''; inp.focus(); } else { inp.value=sel.value||''; }   // 목록값 → 숨은 칸으로
+}
 /* [D21] 관찰자 로스터. 실명·이니셜은 넣지 않는다(직원 준식별자이고 배포본 IndexedDB 에 남는다).
    OBS-NN ↔ 실명 대응은 위임 로그(ICH E6 §4.1.5)에 둔다. */
 /* [D24] 병동은 16E/15E 뿐이다. 구형 자유입력('16E-A' 등)이 CFG 에 남아 있으면
@@ -942,7 +969,7 @@ function syncSetFromPid(){
   var w='';
   if(sel.value==='__manual__'){ w=normWard($('s_pid_ward')&&$('s_pid_ward').value); }
   else if(sel.value){ w=normWard(sel.value.split('-')[1]); }
-  if(w) setEl.value=w;
+  if(w){ setEl.value=w; fillSerialSel(w); }                // [v1.47] 익명ID 병동 → 시리얼 목록 순서도 따라간다
 }
 
 /* [D23] 오류 시 포커스는 '지금 보이는' 컨트롤로 — #s_pid 는 hidden 이라 focus 가 먹지 않는다. */
@@ -1001,12 +1028,14 @@ function startSession(){
     return;
   }
   if(!serialRaw){
-    if(!confirm('패치 시리얼이 비어 있습니다.\n\n'+
-                '시리얼은 씨어스 serial_ecg_1 과 대조하는 연계 QC 근거입니다.\n'+
-                '패치 표기를 읽을 수 없어 병상+측정 시작시각으로 사후 연계할 때만 비워 둡니다\n'+
-                '(등록 기록시트 ③에 병상·측정 시작시각을 반드시 적으세요).\n\n비운 채로 시작할까요?')){
-      $('s_serial').focus(); return;
-    }
+    /* [v1.47] 시리얼은 **필수**다(사용자 결정 2026-09-17). v1.46 의 「빈 값은 확인 창으로 통과」를 없앤다 —
+       연계 QC(K4)의 유일한 앱 측 근거이고, 납품 목록에서 고르므로 비울 이유가 없다. */
+    var selEl=$('s_serial_sel');
+    if(selEl && selEl.value!==SERIAL_MANUAL) selEl.focus(); else $('s_serial').focus();
+    alert('패치 시리얼은 필수입니다.\n\n'+
+          '목록에서 패치 표면의 시리얼을 고르세요. 목록에 없으면 「목록에 없음 · 직접 입력」을 고른 뒤 입력하세요.\n'+
+          '표기를 읽을 수 없으면 CRC 에게 확인한 뒤 시작하십시오.');
+    return;
   }
   $('s_serial').value=serialRaw;                    // 정규화 결과를 화면에도 되돌려 준다
   /* [D21] 익명ID 안의 병동과 set_assign 을 대조한다. 다르면 전동(轉棟)일 수 있으므로
@@ -1324,7 +1353,7 @@ function bind(){
   $('saveCsv').addEventListener('click',exportCurrent);
   /* [D4] 배너 안의 탈출구 — 저장 실패로 요약화면에 못 가도 여기서 메모리 그대로 내보낸다. */
   if($('bannerCsv')) $('bannerCsv').addEventListener('click',exportCurrent);
-  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_pid_sel').value=''; $('s_pid_num').value=''; setWard('s_pid_ward',CFG.set); $('s_serial').value=''; $('memo').value=''; memoWarn(); setObsSel('s_obs',CFG.obs); setWard('s_set',CFG.set); if($('s_start'))$('s_start').value='LIE'; if($('s_dual'))$('s_dual').value='0'; show('startScreen'); refreshList(); });
+  $('newsess').addEventListener('click',function(){ S=null; $('s_pid').value=''; $('s_pid_sel').value=''; $('s_pid_num').value=''; setWard('s_pid_ward',CFG.set); $('s_serial').value=''; if($('s_serial_sel')) $('s_serial_sel').value=''; serialMode(); $('memo').value=''; memoWarn(); setObsSel('s_obs',CFG.obs); setWard('s_set',CFG.set); if($('s_start'))$('s_start').value='LIE'; if($('s_dual'))$('s_dual').value='0'; show('startScreen'); refreshList(); });
   /* [D22] memo 는 CSV note 로 직행하는 유일한 자유텍스트다. 등록번호·연락처가 흘러드는 것을
      막되, 코딩 흐름은 끊지 않는다 — 모달이 아니라 입력칸 경고 표시로만 알린다
      (전이 탭 시점에 모달을 띄우면 시각이 critical 한 순간에 CRC 를 붙잡게 된다). */
@@ -1343,6 +1372,9 @@ function bind(){
     pidMode();
   });
   if($('s_set')) $('s_set').addEventListener('change',pidMode);
+  /* [v1.47] 패치 시리얼 드롭다운 — 선택은 숨은 입력칸으로, 병동이 바뀌면 그 병동 납품분을 위로. */
+  if($('s_serial_sel')) $('s_serial_sel').addEventListener('change',serialMode);
+  if($('s_set')) $('s_set').addEventListener('change',function(){ fillSerialSel($('s_set').value); });
   $('exportAll').addEventListener('click',function(){
     idbAll('sessions').then(function(list){
       /* [D4] 저장이 실패한 상태에서도 이 버튼이 낡은 IndexedDB 사본을 내보내지 않도록
@@ -1410,6 +1442,7 @@ function boot(){
     buildButtons(); bind();
     $('clk').textContent=clock(Clock.now());
     setObsSel('s_obs',CFG.obs); setWard('s_set',CFG.set);
+    fillSerialSel(CFG.set); serialMode();                 // [v1.47] 납품 목록 드롭다운
     return refreshList();
   }).then(function(){
     return Clock.sync();
