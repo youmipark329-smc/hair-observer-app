@@ -22,8 +22,14 @@
                들어가므로 startSession·CSV(27컬럼) 경로는 그대로다. **시리얼은 필수**(빈 값은 시작 차단 — v1.46 확인 창 통과 폐지).
                sw.js 캐시 v49→v50 · SHELL 에 devices.js 추가.
    v1.48 변경 (2026-09-17): 시리얼 드롭다운에 **선택 병동의 납품분만** 표시(익명ID 를 고르면 그 병동, set_assign 을 바꾸면 그 병동).
-               병동이 아직 없으면 두 병동 모두. 「목록에 없음 · 직접 입력」은 그대로. sw.js 캐시 v50→v51. */
-var APP_VERSION='1.48';
+               병동이 아직 없으면 두 병동 모두. 「목록에 없음 · 직접 입력」은 그대로. sw.js 캐시 v50→v51.
+   v1.49 변경 (2026-10-06 · 파일럿 1일차 반영): ① [D55] **관찰 복귀 자세 확인** — 미관찰 맥락(화장실·가림·병실밖·
+               관찰자이석)에서 관찰중으로 돌아오거나 세션을 재개(미관찰 gap)하면 「지금 자세?」 창이 뜬다. 고른 자세가
+               직전과 달라도 **전이·bed-exit 으로 기록하지 않고** 복귀 시각부터 그 자세의 상태행으로 이어 쓴다
+               (보지 못한 구간의 변화이므로 — 10/6 P-16E-001 이 병실밖 2시간 뒤 누운 채 돌아와 WLK→LIE 가 찍혔다).
+               ② 센서 on→off 전환 확인 창(10/6 오탭). ③ CSV 를 열거나 다시 저장하지 말라는 안내 문구(10/6 xlsx 수령).
+               CSV 스키마(27컬럼)·어휘는 바뀌지 않는다. sw.js 캐시 v51→v52. */
+var APP_VERSION='1.49';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -400,11 +406,15 @@ function buildButtons(){
                sp.textContent=x.sub; b.appendChild(sp); }      // [D44] 괄호만 작게
     else b.textContent=x.k;
     b.addEventListener('click',function(){tapContext(x);}); cc.appendChild(b);});
+  var rc=$('reStates'); if(rc){ rc.innerHTML='';         // [D55] 복귀 자세 확인 창 버튼
+    STATES.forEach(function(s){var b=document.createElement('button');b.className='stbtn';b.type='button';b.dataset.c=s.c;
+      b.innerHTML='<span class="ko">'+s.k+'</span><span class="en">'+s.c+'</span>';
+      b.addEventListener('click',function(){applyReentry(s.c);}); rc.appendChild(b);}); }
 }
 
 /* ───────── 코딩 동작 ───────── */
 function tapState(c){
-  if(!S||S.ended||LOCKED()||c===S.cur)return;
+  if(!S||S.ended||LOCKED()||S.reentry!=null||c===S.cur)return;   // [D55] 복귀 자세 확인 전에는 받지 않는다
   /* [D46] push 시점에 memoVal() 을 읽지 않는다 — 메모는 **소급 전용**이다.
      종전에는 「미리 쓴 메모가 다음 기록에 붙는」 경로가 남아 있어, `기타` 메모를 쓴 뒤
      자세 버튼을 누르면 같은 문장이 자세 행에도 **복제**됐다. */
@@ -432,7 +442,7 @@ function tapState(c){
   $('memo').value=''; persist(); render();        // [D46] 새 기록 → 메모칸 비움
 }
 function tapMotion(m,b){
-  if(!S||S.ended||LOCKED()||S.cur==='WLK')return;
+  if(!S||S.ended||LOCKED()||S.reentry!=null||S.cur==='WLK')return;
   var ts=Clock.now(), sn=snapT();
   /* [D53] 식사는 구간이다. 시작 탭에서 열고 끝 탭에서 닫아 **한 행**으로 낸다. */
   if(m.bout==='start'){
@@ -483,8 +493,36 @@ function tapContext(x){
   // [D1] 이 구간이 그대로 CSV 의 code='context' 행 1개가 된다 → rid·시각·스냅샷을 모두 갖춘다.
   S.ctxBouts.push({rid:S.ctxRid,ctx:S.ctx,start:S.ctxStart,end:ts,dur:Math.max(0,(ts-S.ctxStart)/1000),
     offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});
+  var returning=(S.ctx!=='none'&&newc==='none');     // [D55] 미관찰 → 관찰중
   S.ctx=newc; S.ctxStart=ts; S.ctxRid='r'+(++S.seq);   // [D3] 새 ctx 구간이 열리는 시점에 부여
   S.log.push({t:clock(ts),kind:'context',code:'context='+newc,bed:false});
+  if(returning) S.reentry=ts;                         // render 가 「지금 자세?」 창을 띄운다
+  persist(); render();
+}
+/* [D55] 관찰 복귀 자세 확인. 미관찰 구간 동안 자세가 바뀌었어도 관찰자는 그 전이를 보지 못했다.
+   그런데 화면에는 떠날 때 자세가 남아 있어, 돌아와 현재 자세를 누르면 그 순간의 전이로 찍혔다
+   (10/6: 병실밖 2시간 → 누운 채 복귀 → WLK→LIE. 누운 채 나가 걸어 돌아오면 LIE→WLK = 가짜 bed-exit).
+   ⇒ 고른 자세는 **복귀 시각(S.reentry)부터의 상태**로만 기록한다 — resumeSession 의 「재개 직후 bout 은
+   enter=현재상태·isBed=false」와 같은 규칙이다. 전이행이 없으므로 CSV 는 상태행 → 상태행으로 이어진다. */
+function applyReentry(c){
+  if(!S||S.reentry==null)return;
+  var t=S.reentry; S.reentry=null;
+  if(c!==S.cur){
+    var dev=Clock.deviceNow(), sn=snapT();
+    if(S.boutStart<t){                                 // 닫을 구간이 있으면 복귀 시각에서 닫는다
+      S.bouts.push({rid:S.boutRid,rid2:S.boutRid2,state:S.cur,enter:S.boutEnter,isBed:S.boutIsBed,start:S.boutStart,startDev:S.boutStartDev,
+        end:t,endDev:dev,dur:Math.max(0,(t-S.boutStart)/1000),ctx:S.ctx,unc:S.unc,note:'',
+        offset:sn.offset,rtt:sn.rtt,flag:sn.flag,sensor:S.sensor});
+      // kind='transition' 이라 doUndo 가 이 bout 을 그대로 되살린다(reentry 로 창도 다시 띄운다)
+      S.log.push({t:clock(t),kind:'transition',code:'복귀 자세 '+c+' (전환 아님)',bed:false,
+        dur:Math.max(0,(t-S.boutStart)/1000),from:S.cur,reentry:t});
+      S.boutRid='r'+(++S.seq); S.boutRid2='r'+(++S.seq); S.boutStart=t; S.boutStartDev=dev;
+    } else {                                           // 재개 직후처럼 복귀 시각에 막 열린 bout 은 자세만 바꾼다
+      S.log.push({t:clock(t),kind:'reentry',code:'복귀 자세 '+c+' (전환 아님)',bed:false,
+        prev:S.cur,prevEnter:S.boutEnter,reentry:t});
+    }
+    S.cur=c; S.boutEnter=c; S.boutIsBed=false; S.reminded=false; S.unc=false;
+  }
   persist(); render();
 }
 function tapSyncMarker(){
@@ -531,11 +569,13 @@ function doUndo(){
   /* [D31] 되돌린 행이 싣고 간 불확실을 되살린다 — 안 하면 실행취소 뒤 버튼 표시가
      실제 기록 상태와 어긋난다(꺼져 보이는데 되살아난 구간은 여전히 애매한 구간이다). */
   if(e.kind==='transition'){ var b=S.bouts.pop(); if(b){S.cur=b.state;S.boutStart=b.start;S.boutStartDev=b.startDev;S.boutEnter=b.enter;S.boutIsBed=b.isBed;S.boutRid=b.rid;S.boutRid2=b.rid2;S.unc=!!b.unc;} }
+  else if(e.kind==='reentry'){ S.cur=e.prev; S.boutEnter=e.prevEnter; S.boutIsBed=false; }   // [D55] 제자리 변경 되돌림
   else if(e.kind==='motion'){ var mo=S.motions.pop();
     if(mo && noteTarget===mo){ noteTarget=null; $('memo').value=''; } }   // [D45]
   else if(e.kind==='marker'){ S.markers.pop(); }
-  else if(e.kind==='context'){ var cb=S.ctxBouts.pop(); if(cb){S.ctx=cb.ctx;S.ctxStart=cb.start;S.ctxRid=cb.rid;} }
+  else if(e.kind==='context'){ var cb=S.ctxBouts.pop(); if(cb){S.ctx=cb.ctx;S.ctxStart=cb.start;S.ctxRid=cb.rid;} S.reentry=null; }
   else if(e.kind==='sensor'){ S.sensor=e.prev; }   // [D8] 센서 토글도 undo 대상
+  if(e.reentry!=null) S.reentry=e.reentry;           // [D55] 복귀 자세를 되돌리면 「지금 자세?」 창을 다시 띄운다
   /* [D6] 되살린 구간 시작이 '미래'면(시계 되돌림 이력이 있는 세션) 그대로 두면
      다음 export 가 음수 duration_sec 을 낸다 — 현재 시각으로 클램프한다. */
   var nw=Clock.now();
@@ -585,6 +625,10 @@ function render(){
   mm.classList.toggle('req',!!noteTarget&&!mm.value.trim());   // [D45] 기타는 메모 필수
   mm.placeholder=noteTarget?'기타 — 무엇이었는지 적어주세요 (필수)':'메모 (선택)';
   var mcEl=$('mcount'); if(mcEl) mcEl.textContent=(S.markers||[]).length;
+  var re=$('reModal');                               // [D55] 복귀 자세 확인 창
+  if(re){ var pend=(S.reentry!=null&&!S.ended); re.classList.toggle('hidden',!pend);
+    if(pend){ $('rePrev').textContent=koState(S.cur)+' ('+S.cur+')';
+      Array.prototype.forEach.call($('reStates').children,function(b){ b.classList.toggle('on',b.dataset.c===S.cur); }); } }
   var ul=$('events');
   if(!S.log.length){ ul.innerHTML='<li class="empty">아직 기록 없음 — 상태 버튼을 눌러보세요</li>'; }
   else{ ul.innerHTML='';
@@ -717,7 +761,7 @@ function sessRows(sess,includeHead,nowTs){
   });
   return out;
 }
-function matrixToCsv(rows){ return '﻿'+rows.map(function(r){return r.map(csvEscape).join(',');}).join('\r\n'); }
+function matrixToCsv(rows){ return '\uFEFF'+rows.map(function(r){return r.map(csvEscape).join(',');}).join('\r\n'); }
 /* ───────── export 파일명 [D51] ─────────
    하이픈을 쓰지 않는다 — 폰→PC 전송 경로에서 하이픈이 지워져 앱이 만든 이름과
    도착한 이름이 달라지는 것을 실측했다(HAIR_P-16E-007_S…-12493 → HAIR_P16E007_S…12493).
@@ -1160,6 +1204,9 @@ function resumeSession(sess){
      — 그대로 두면 방금 push 한 bed-exit 이 다음 행에서 한 번 더 계상된다. */
   S.boutEnter=S.cur; S.boutIsBed=false;
   S.ctxStart=ts; S.ctxRid='r'+(++S.seq);
+  /* [D55] 미관찰 gap 이 있었으면 그동안 자세가 바뀌었을 수 있다 → 「지금 자세?」 확인.
+     열려 있던 확인 창(복귀 직후 앱이 꺼진 경우)도 이 재개 시각으로 다시 묻는다. */
+  S.reentry=(gapSec>0||S.reentry!=null)?ts:null;
   persistNow().then(function(){ show('codeScreen'); render(); })
               .catch(function(e){ saveFail(e); show('codeScreen'); render(); });
 }
@@ -1332,7 +1379,10 @@ function bind(){
   // [D8] 센서 토글을 로그에 남겨 undo 가능하게 한다(값은 이후 push 되는 행부터 반영).
   $('sensorbtn').addEventListener('click',function(){
     if(!S||S.ended)return;
-    var prev=S.sensor; S.sensor=(prev==='on')?'off':'on';
+    var prev=S.sensor;
+    /* [D55] on→off 만 확인한다(10/6 오탭). 끄는 것은 패치가 실제로 떨어졌거나 꺼졌을 때뿐이다. */
+    if(prev==='on'&&!confirm('센서를 「off」로 바꿀까요?\n\n패치가 실제로 떨어졌거나 꺼졌을 때만 바꿉니다.'))return;
+    S.sensor=(prev==='on')?'off':'on';
     S.log.push({t:clock(Clock.now()),kind:'sensor',code:'sensor='+S.sensor,prev:prev,bed:false});
     persist();render();
   });
