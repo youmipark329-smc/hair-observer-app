@@ -28,8 +28,10 @@
                직전과 달라도 **전이·bed-exit 으로 기록하지 않고** 복귀 시각부터 그 자세의 상태행으로 이어 쓴다
                (보지 못한 구간의 변화이므로 — 10/6 P-16E-001 이 병실밖 2시간 뒤 누운 채 돌아와 WLK→LIE 가 찍혔다).
                ② 센서 on→off 전환 확인 창(10/6 오탭). ③ CSV 를 열거나 다시 저장하지 말라는 안내 문구(10/6 xlsx 수령).
-               CSV 스키마(27컬럼)·어휘는 바뀌지 않는다. sw.js 캐시 v51→v52. */
-var APP_VERSION='1.49';
+               CSV 스키마(27컬럼)·어휘는 바뀌지 않는다. sw.js 캐시 v51→v52.
+   v1.50 변경 (2026-10-06 · v1.49 현장 확인): 「지금 자세?」 창은 **미관찰 맥락 → 관찰중 전환 때만** 뜬다.
+               세션 재개(새로고침·코딩 계속)로는 뜨지 않는다 — 관찰 중 새로고침마다 창이 떴다. sw.js 캐시 v52→v53. */
+var APP_VERSION='1.50';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -1204,9 +1206,10 @@ function resumeSession(sess){
      — 그대로 두면 방금 push 한 bed-exit 이 다음 행에서 한 번 더 계상된다. */
   S.boutEnter=S.cur; S.boutIsBed=false;
   S.ctxStart=ts; S.ctxRid='r'+(++S.seq);
-  /* [D55] 미관찰 gap 이 있었으면 그동안 자세가 바뀌었을 수 있다 → 「지금 자세?」 확인.
-     열려 있던 확인 창(복귀 직후 앱이 꺼진 경우)도 이 재개 시각으로 다시 묻는다. */
-  S.reentry=(gapSec>0||S.reentry!=null)?ts:null;
+  /* [D55] 재개 자체로는 묻지 않는다(v1.50) — 관찰 중 새로고침마다 창이 떠서 현장에서 방해가 됐다
+     (10/6 사용자). 짧은 재개 gap 뒤 첫 입력은 SAP [D55] 30초 규칙으로 분석에서 처리한다.
+     다만 「관찰중 복귀 → 창이 열린 채 앱이 꺼진」 경우는 이 재개 시각으로 다시 묻는다. */
+  S.reentry=(S.reentry!=null)?ts:null;
   persistNow().then(function(){ show('codeScreen'); render(); })
               .catch(function(e){ saveFail(e); show('codeScreen'); render(); });
 }
