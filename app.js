@@ -30,8 +30,13 @@
                ② 센서 on→off 전환 확인 창(10/6 오탭). ③ CSV 를 열거나 다시 저장하지 말라는 안내 문구(10/6 xlsx 수령).
                CSV 스키마(27컬럼)·어휘는 바뀌지 않는다. sw.js 캐시 v51→v52.
    v1.50 변경 (2026-10-06 · v1.49 현장 확인): 「지금 자세?」 창은 **미관찰 맥락 → 관찰중 전환 때만** 뜬다.
-               세션 재개(새로고침·코딩 계속)로는 뜨지 않는다 — 관찰 중 새로고침마다 창이 떴다. sw.js 캐시 v52→v53. */
-var APP_VERSION='1.50';
+               세션 재개(새로고침·코딩 계속)로는 뜨지 않는다 — 관찰 중 새로고침마다 창이 떴다. sw.js 캐시 v52→v53.
+   v1.51 변경 (2026-10-13 · 본 관찰 2일차): [D56] **재개 미관찰 구간을 앱이 실제로 꺼져 있던 시간만으로.**
+               화면이 보이는 동안 1초마다 S.aliveTs/aliveDev(살아 있음 시각)를 갱신하고 10초마다·화면을 벗어날 때 저장한다.
+               재개 때 「마지막 알려진 시각」에 이 값을 포함한다 — 예전에는 마지막 입력 시각부터 재개까지를 off_view 로
+               잡아, 10/13 OBS-01 이 밝기 조정으로 앱을 1분 벗어났는데 관찰하던 12.7분이 미관찰로 들어갔다.
+               CSV 스키마(27컬럼)·어휘는 바뀌지 않는다. sw.js 캐시 v53→v54. */
+var APP_VERSION='1.51';
 /* [D9] 전이창(초) — 관찰자 탭은 '순간' 1개뿐이므로 전이 구간 길이는 **사전지정 상수**다.
    전이행 = [탭, 탭+TRANS_SEC), 그 뒤는 도착 자세의 state 행. 이 상수를 바꾸면
    테이블 A 의 bed-exit 라벨 폭과 테이블 C 의 transition/state 배분이 함께 바뀐다
@@ -1121,10 +1126,19 @@ function beginSession(obs,pid,set,consent){
   persistNow().then(function(){ show('codeScreen'); render(); }).catch(saveFail);
 }
 /* [D2] 마지막으로 '관찰이 살아 있었다'고 말할 수 있는 시각 */
+/* [D56] 살아 있음 시각 — 화면이 보이는 동안(또는 벗어나는 순간 force) 갱신하고 10초마다 저장한다.
+   재개 때 이 시각까지는 관찰자가 앱을 보고 있었으므로 미관찰(off_view)은 그 뒤부터만 잡는다.
+   화면이 꺼진 동안은 갱신하지 않는다 → 꺼진 채 앱이 죽었다 재개되면 꺼진 시각부터 미관찰(보수적). */
+var _aliveSaved=0;
+function markAlive(force){
+  if(!S||S.ended||(!force&&document.hidden)) return;
+  S.aliveTs=Clock.now(); S.aliveDev=Clock.deviceNow();
+  if(!force&&S.aliveDev-_aliveSaved>=10000){ _aliveSaved=S.aliveDev; persist(); }
+}
 function lastKnownTs(sess){
   var t=sess.sessionStart||0;
   function up(v){ if(typeof v==='number'&&isFinite(v)&&v>t) t=v; }
-  up(sess.endTs); up(sess.boutStart); up(sess.ctxStart);
+  up(sess.endTs); up(sess.boutStart); up(sess.ctxStart); up(sess.aliveTs);   // [D56]
   (sess.bouts||[]).forEach(function(b){ up(b.end); });
   (sess.ctxBouts||[]).forEach(function(c){ up(c.end); });
   (sess.motions||[]).forEach(function(m){ up(m.t); });
@@ -1137,7 +1151,7 @@ function lastKnownTs(sess){
 function lastKnownDev(sess){
   var t=sess.createdDevice||0;
   function up(v){ if(typeof v==='number'&&isFinite(v)&&v>t) t=v; }
-  up(sess.boutStartDev);
+  up(sess.boutStartDev); up(sess.aliveDev);            // [D56]
   (sess.bouts||[]).forEach(function(b){ up(b.startDev); up(b.endDev); });
   (sess.motions||[]).forEach(function(m){ up(m.tDev); });
   (sess.markers||[]).forEach(function(k){ up(k.tDev); });
@@ -1452,16 +1466,16 @@ function bind(){
     idbClear('sessions').then(function(){ S=null; alert('삭제되었습니다.'); backFromSettings(); });
   });
   // 시계 표시(서버기준 단조)
-  setInterval(function(){ $('clk').textContent=clock(Clock.now()); if(S&&!S.ended&&!$('codeScreen').classList.contains('hidden')) $('held').innerHTML=fmtDur((Clock.now()-S.boutStart)/1000); },1000);
+  setInterval(function(){ $('clk').textContent=clock(Clock.now()); if(S&&!S.ended&&!$('codeScreen').classList.contains('hidden')) $('held').innerHTML=fmtDur((Clock.now()-S.boutStart)/1000); markAlive(); },1000);
   // 60초 주기 동기
   setInterval(function(){ Clock.sync(); },60000);
   // 앱 복귀 시 재동기(백그라운드에서 벽시계 점프 대비) · [D4] 화면을 벗어날 땐 즉시 저장
   document.addEventListener('visibilitychange',function(){
-    if(document.hidden){ persistNow().catch(saveFail); }
+    if(document.hidden){ markAlive(true); persistNow().catch(saveFail); }
     else { Clock.sync(); }
   });
   // [D4] 안드로이드는 pagehide 이후 프로세스를 예고 없이 죽인다 — 디바운스를 건너뛰고 마지막 저장
-  window.addEventListener('pagehide',function(){ persistNow().catch(saveFail); });
+  window.addEventListener('pagehide',function(){ markAlive(true); persistNow().catch(saveFail); });
 }
 
 /* ───────── 부트 ───────── */
